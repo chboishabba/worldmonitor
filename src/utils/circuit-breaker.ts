@@ -332,10 +332,14 @@ export class CircuitBreaker<T> {
 
     let cachedEntry = this.getCacheEntry(cacheKey);
 
-    // If a shouldCache predicate is provided and the cached data fails it
-    // (e.g. empty array from a prior failed fetch), evict it so we fetch fresh
-    // rather than serving known-invalid data for the full TTL.
-    if (cachedEntry !== null && options.shouldCache && !options.shouldCache(cachedEntry.data as R)) {
+    // If the cached data fails the shouldCache predicate, evict it and fetch
+    // fresh rather than serving known-invalid data for the full TTL.
+    // The default shouldCache (() => true) never returns false, so this only
+    // fires when an explicit predicate is passed.
+    // deletePersistentCache is fire-and-forget; on the rare case that
+    // hydratePersistentCache runs again before the delete commits, the entry
+    // is evicted once more — safe and self-resolving.
+    if (cachedEntry !== null && !shouldCache(cachedEntry.data as R)) {
       this.evictCacheKey(cacheKey);
       if (this.persistEnabled) this.deletePersistentCache(cacheKey);
       cachedEntry = null;
