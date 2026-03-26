@@ -5,8 +5,9 @@
  * environments where @clerk/clerk-js (browser-only) is not available.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ClerkInstance = any;
+import type { Clerk } from '@clerk/clerk-js';
+
+type ClerkInstance = Clerk;
 
 const PUBLISHABLE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_CLERK_PUBLISHABLE_KEY) as string | undefined;
 
@@ -84,10 +85,15 @@ export async function initClerk(): Promise<void> {
     return;
   }
   loadPromise = (async () => {
-    const { Clerk } = await import('@clerk/clerk-js');
-    const clerk = new Clerk(PUBLISHABLE_KEY);
-    await clerk.load({ appearance: getAppearance() });
-    clerkInstance = clerk;
+    try {
+      const { Clerk } = await import('@clerk/clerk-js');
+      const clerk = new Clerk(PUBLISHABLE_KEY);
+      await clerk.load({ appearance: getAppearance() });
+      clerkInstance = clerk;
+    } catch (e) {
+      loadPromise = null; // allow retry on next call
+      throw e;
+    }
   })();
   return loadPromise;
 }
@@ -111,15 +117,38 @@ export async function signOut(): Promise<void> {
  * Get a bearer token for premium API requests.
  * Uses the 'convex' JWT template which includes the `plan` claim.
  * Returns null if no active session.
+ *
+ * Tokens are cached for 50s (Clerk tokens expire at 60s) with in-flight
+ * deduplication to prevent concurrent panels from racing against Clerk.
  */
+let _cachedToken: string | null = null;
+let _cachedTokenAt = 0;
+let _tokenInflight: Promise<string | null> | null = null;
+const TOKEN_CACHE_TTL_MS = 50_000;
+
 export async function getClerkToken(): Promise<string | null> {
-  const session = clerkInstance?.session;
-  if (!session) return null;
-  try {
-    return await session.getToken({ template: 'convex' });
-  } catch {
-    return null;
+  if (_cachedToken && Date.now() - _cachedTokenAt < TOKEN_CACHE_TTL_MS) {
+    return _cachedToken;
   }
+  if (_tokenInflight) return _tokenInflight;
+
+  _tokenInflight = (async () => {
+    const session = clerkInstance?.session;
+    if (!session) return null;
+    try {
+      const token = await session.getToken({ template: 'convex' });
+      if (token) {
+        _cachedToken = token;
+        _cachedTokenAt = Date.now();
+      }
+      return token;
+    } catch {
+      return null;
+    } finally {
+      _tokenInflight = null;
+    }
+  })();
+  return _tokenInflight;
 }
 
 /** Get current Clerk user metadata. Returns null if signed out. */

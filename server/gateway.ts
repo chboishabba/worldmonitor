@@ -185,12 +185,7 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/aviation/v1/get-youtube-live-stream-info': 'fast',
 };
 
-const PREMIUM_RPC_PATHS = new Set<string>([
-  '/api/market/v1/analyze-stock',
-  '/api/market/v1/get-stock-analysis-history',
-  '/api/market/v1/backtest-stock',
-  '/api/market/v1/list-stored-stock-backtests',
-]);
+import { PREMIUM_RPC_PATHS } from '../src/shared/premium-paths';
 
 /**
  * Creates a Vercel Edge handler for a single domain's routes.
