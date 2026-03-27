@@ -8325,6 +8325,9 @@ Rows: padding 5–8px vertical, 8px horizontal. Section gaps: 8–12px. NEVER us
 ### Border radius — flat, not rounded
 Max 4px. NEVER use border-radius > 4px (no 8px, 12px, 16px rounded cards).
 
+### Titles — NEVER duplicate the panel header
+The outer panel frame already displays the widget title. NEVER add an h1/h2/h3 or any top-level title element to the widget body. Start content immediately (tabs, rows, stats grid, or a section label).
+
 ### Labels — uppercase monospace
 Section headers and column labels: font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted)
 
@@ -8890,7 +8893,8 @@ CSS variables are pre-defined in the iframe: --bg, --surface, --text, --text-sec
 - ALWAYS use CSS variables for colors — never hardcode hex values like #3b82f6, #1a1a2e, etc.
 - NEVER override font-family (already set — do not change it)
 - NEVER use border-radius > 4px
-- NEVER use large bold titles (h1/h2/h3) — use .panel-title or section labels only
+- NEVER use large bold titles (h1/h2/h3) — use section labels only
+- NEVER add a top-level .panel-header or .panel-title — the outer panel frame already shows the widget title; a second header creates an ugly duplicate
 - Keep row padding tight: 5–8px vertical, 8px horizontal
 - Numbers/prices: font-variant-numeric: tabular-nums
 - Positive values: color: var(--green) | Negative values: color: var(--red)
@@ -8900,8 +8904,7 @@ CSS variables are pre-defined in the iframe: --bg, --surface, --text, --text-sec
 
 ## Pre-defined CSS classes — use these, do NOT reinvent them
 
-Panel structure (copy exactly):
-<div class="panel-header"><span class="panel-title">SECTION TITLE</span><span style="color:var(--text-muted);font-size:10px">LIVE</span></div>
+Tabs (when content has multiple views — start directly with this, NO .panel-header above it):
 <div class="panel-tabs">
   <button class="panel-tab active" onclick="switchTab(this,'line')">LINE</button>
   <button class="panel-tab" onclick="switchTab(this,'bar')">BAR</button>

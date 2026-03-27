@@ -30,12 +30,19 @@ export function sanitizeWidgetHtml(html: string): string {
   return DOMPurify.sanitize(html, PURIFY_CONFIG) as unknown as string;
 }
 
+// Strip a leading .panel-header that the agent may generate — the outer
+// CustomWidgetPanel frame already displays the title, so a second one is
+// always a duplicate. Only the very first element is removed.
+function stripLeadingPanelHeader(html: string): string {
+  return html.replace(/^\s*<div[^>]*\bclass="panel-header"[^>]*>[\s\S]*?<\/div>\s*/i, '');
+}
+
 export function wrapWidgetHtml(html: string, extraClass = ''): string {
   const shellClass = ['wm-widget-shell', extraClass].filter(Boolean).join(' ');
   return `
     <div class="${shellClass}">
       <div class="wm-widget-body">
-        <div class="wm-widget-generated">${sanitizeWidgetHtml(html)}</div>
+        <div class="wm-widget-generated">${sanitizeWidgetHtml(stripLeadingPanelHeader(html))}</div>
       </div>
     </div>
   `;
@@ -126,6 +133,6 @@ if (typeof document !== 'undefined') {
 
 export function wrapProWidgetHtml(bodyContent: string): string {
   const id = `wm-${Math.random().toString(36).slice(2)}`;
-  widgetBodyStore.set(id, bodyContent);
+  widgetBodyStore.set(id, stripLeadingPanelHeader(bodyContent));
   return `<div class="wm-widget-shell wm-widget-pro"><iframe src="/wm-widget-sandbox.html" data-wm-id="${id}" sandbox="allow-scripts" style="width:100%;height:400px;border:none;display:block;" title="Interactive widget"></iframe></div>`;
 }
