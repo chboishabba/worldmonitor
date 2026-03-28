@@ -11370,8 +11370,8 @@ function computeSimulationAdjustment(expandedPath, simTheaterResult, candidatePa
   const details = { bucketChannelMatch: false, actorOverlapCount: 0, invalidatorHit: false, stabilizerHit: false };
 
   const { topPaths = [], invalidators = [], stabilizers = [] } = simTheaterResult || {};
-  const pathBucket = expandedPath?.direct?.targetBucket || candidatePacket?.topBucketId || '';
-  const pathChannel = expandedPath?.direct?.channel || candidatePacket?.topChannel || '';
+  const pathBucket = expandedPath?.direct?.targetBucket || candidatePacket?.marketContext?.topBucketId || candidatePacket?.topBucketId || '';
+  const pathChannel = expandedPath?.direct?.channel || candidatePacket?.marketContext?.topChannel || candidatePacket?.topChannel || '';
   const pathActors = extractPathActors(expandedPath);
 
   const bucketChannelMatch = topPaths.find(

@@ -6353,6 +6353,28 @@ describe('phase 3 simulation re-ingestion — computeSimulationAdjustment', () =
     assert.equal(adjustment, 0);
   });
 
+  it('T6b: bucket+channel nested under marketContext (production packet shape) gives +0.08', () => {
+    // Production candidatePackets nest topBucketId/topChannel under marketContext,
+    // not at the top level. This test guards against regressions where the code
+    // reads the wrong level and pathBucket/pathChannel fall back to ''.
+    const path = { type: 'expanded', pathId: 'path-test', candidateStateId: 'state-1', direct: null, second: null, third: null, pathScore: 0.60, acceptanceScore: 0.55, candidate: { routeFacilityKey: 'Strait of Hormuz', commodityKey: 'crude_oil' } };
+    const simResult = {
+      theaterId: 'state-1',
+      topPaths: [{ label: 'Oil supply disruption escalation via Hormuz', summary: 'Crude oil supply disruption', keyActors: [] }],
+      invalidators: [],
+      stabilizers: [],
+    };
+    const packetWithMarketContext = {
+      candidateStateId: 'state-1',
+      routeFacilityKey: 'Strait of Hormuz',
+      commodityKey: 'crude_oil',
+      marketContext: { topBucketId: 'energy', topChannel: 'energy_supply_shock' },
+    };
+    const { adjustment, details } = computeSimulationAdjustment(path, simResult, packetWithMarketContext);
+    assert.equal(adjustment, 0.08);
+    assert.equal(details.bucketChannelMatch, true);
+  });
+
   it('T7: actor overlap below 2 does not add +0.04', () => {
     const path = makePath('energy', 'energy_supply_shock', ['Iran']);
     const simResult = {
