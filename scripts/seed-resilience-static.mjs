@@ -127,7 +127,8 @@ async function fetchWorldBankIndicatorRows(indicatorId, extraParams = {}) {
   let page = 1;
   let totalPages = 1;
 
-  while (page <= totalPages) {
+  const MAX_WB_PAGES = 100;
+  while (page <= totalPages && page <= MAX_WB_PAGES) {
     const params = new URLSearchParams({
       format: 'json',
       per_page: '1000',
@@ -251,13 +252,17 @@ async function fetchWhoIndicatorRows(indicatorCode) {
     '$top': '1000',
   });
   let nextUrl = `${WHO_BASE}/${encodeURIComponent(indicatorCode)}?${params}`;
+  let pageCount = 0;
+  const MAX_WHO_PAGES = 50;
 
-  while (nextUrl) {
+  while (nextUrl && pageCount < MAX_WHO_PAGES) {
+    pageCount += 1;
     const payload = await withRetry(() => fetchJson(nextUrl), 2, 750);
     if (!Array.isArray(payload?.value)) throw new Error(`Unexpected WHO response shape for ${indicatorCode}`);
     rows.push(...payload.value);
     nextUrl = payload['@odata.nextLink'] || payload['odata.nextLink'] || null;
   }
+  if (nextUrl) throw new Error(`WHO ${indicatorCode}: pagination exceeded ${MAX_WHO_PAGES} pages`);
 
   return rows;
 }
@@ -709,7 +714,11 @@ async function publishSuccess(countryPayloads, manifest, meta) {
   }
   commands.push(['SET', RESILIENCE_STATIC_INDEX_KEY, JSON.stringify(manifest), 'EX', RESILIENCE_STATIC_TTL_SECONDS]);
   commands.push(['SET', RESILIENCE_STATIC_META_KEY, JSON.stringify(meta), 'EX', RESILIENCE_STATIC_TTL_SECONDS]);
-  await redisPipeline(commands);
+  const results = await redisPipeline(commands);
+  const failures = results.filter(r => r?.error || r?.result === 'ERR');
+  if (failures.length > 0) {
+    throw new Error(`Redis pipeline: ${failures.length}/${commands.length} commands failed`);
+  }
 }
 
 async function preservePreviousSnapshotOnFailure(failedDatasets, seedYear, message) {
