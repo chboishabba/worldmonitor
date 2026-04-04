@@ -34,6 +34,7 @@ const SERVICE_OVERRIDES = {
     watchPatterns: [
       'scripts/seed-resilience-static.mjs',
       'scripts/_seed-utils.mjs',
+      'scripts/_country-resolver.mjs',
       'scripts/package.json',
       'shared/**',
       'scripts/shared/**',

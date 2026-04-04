@@ -16,6 +16,7 @@ describe('railway seed service config', () => {
       sameMembers(config.watchPatterns, [
         'scripts/seed-resilience-static.mjs',
         'scripts/_seed-utils.mjs',
+        'scripts/_country-resolver.mjs',
         'scripts/package.json',
         'shared/**',
         'scripts/shared/**',

@@ -439,7 +439,14 @@ export async function fetchEnergyDependencyDataset() {
     fetchWorldBankIndicatorRows(WB_ENERGY_IMPORT_INDICATOR, { mrv: '12' }).catch(() => []),
   ]);
 
-  const merged = eurostatData ? parseEurostatEnergyDataset(eurostatData) : new Map();
+  let merged = new Map();
+  if (eurostatData) {
+    try {
+      merged = parseEurostatEnergyDataset(eurostatData);
+    } catch {
+      merged = new Map();
+    }
+  }
   const worldBankFallback = selectLatestWorldBankByCountry(worldBankRows);
 
   for (const [iso2, entry] of worldBankFallback.entries()) {
