@@ -38,6 +38,17 @@ export function createRedisFetch(fixtures: Record<string, unknown>): FakeRedisSt
     sortedSets.set(key, items);
   };
 
+  const readByRank = (key: string, start: number, stop: number) => {
+    const items = [...(sortedSets.get(key) ?? [])];
+    if (items.length === 0) return [];
+
+    const normalizeIndex = (index: number) => (index < 0 ? items.length + index : index);
+    const startIndex = Math.max(0, normalizeIndex(start));
+    const stopIndex = Math.min(items.length - 1, normalizeIndex(stop));
+    if (startIndex > stopIndex) return [];
+    return items.slice(startIndex, stopIndex + 1);
+  };
+
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     if (!url.startsWith(process.env.UPSTASH_REDIS_REST_URL || '')) {
@@ -81,7 +92,7 @@ export function createRedisFetch(fixtures: Record<string, unknown>): FakeRedisSt
         }
 
         if (verb === 'ZRANGE') {
-          const items = [...(sortedSets.get(redisKey) ?? [])];
+          const items = readByRank(redisKey, Number(args[0] || 0), Number(args[1] || 0));
           const withScores = args.map(String).includes('WITHSCORES');
           if (!withScores) return { result: items.map((item) => item.member) };
           return { result: items.flatMap((item) => [item.member, String(item.score)]) };

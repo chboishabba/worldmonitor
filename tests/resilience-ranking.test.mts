@@ -11,6 +11,13 @@ const originalRedisUrl = process.env.UPSTASH_REDIS_REST_URL;
 const originalRedisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 const originalVercelEnv = process.env.VERCEL_ENV;
 
+async function waitForRedisKey(redis: Map<string, string>, key: string, iterations = 200): Promise<void> {
+  for (let index = 0; index < iterations; index += 1) {
+    if (redis.has(key)) return;
+    await Promise.resolve();
+  }
+}
+
 function installRedis(fixtures: Record<string, unknown>) {
   process.env.UPSTASH_REDIS_REST_URL = 'https://redis.example';
   process.env.UPSTASH_REDIS_REST_TOKEN = 'token';
@@ -93,7 +100,7 @@ describe('resilience ranking contracts', () => {
     );
     assert.equal(redis.has('resilience:ranking'), false, 'incomplete ranking should not be cached');
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitForRedisKey(redis, 'resilience:score:YE');
     assert.ok(redis.has('resilience:score:YE'), 'missing country should be warmed into the score cache');
 
     const second = await getResilienceRanking({ request: new Request('https://example.com') } as never, {});

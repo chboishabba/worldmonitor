@@ -15,10 +15,12 @@ import { RESILIENCE_FIXTURES } from './helpers/resilience-fixtures.mts';
 const originalFetch = globalThis.fetch;
 const originalRedisUrl = process.env.UPSTASH_REDIS_REST_URL;
 const originalRedisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+const originalVercelEnv = process.env.VERCEL_ENV;
 
 function installRedis(fixtures: Record<string, unknown>) {
   process.env.UPSTASH_REDIS_REST_URL = 'https://redis.example';
   process.env.UPSTASH_REDIS_REST_TOKEN = 'token';
+  delete process.env.VERCEL_ENV;
   const state = createRedisFetch(fixtures);
   globalThis.fetch = state.fetchImpl;
   return state;
@@ -30,6 +32,8 @@ afterEach(() => {
   else process.env.UPSTASH_REDIS_REST_URL = originalRedisUrl;
   if (originalRedisToken == null) delete process.env.UPSTASH_REDIS_REST_TOKEN;
   else process.env.UPSTASH_REDIS_REST_TOKEN = originalRedisToken;
+  if (originalVercelEnv == null) delete process.env.VERCEL_ENV;
+  else process.env.VERCEL_ENV = originalVercelEnv;
 });
 
 describe('resilience scorer contracts', () => {
@@ -75,9 +79,9 @@ describe('resilience scorer contracts', () => {
       economic: 70.67,
       infrastructure: 77,
       energy: 74,
-      'social-governance': 56.5,
+      'social-governance': 72.75,
       'health-food': 59,
     });
-    assert.equal(overallScore, 66.79);
+    assert.equal(overallScore, 70.85);
   });
 });
