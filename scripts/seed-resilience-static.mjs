@@ -1,24 +1,28 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   acquireLockSafely,
   CHROME_UA,
   extendExistingTtl,
   getRedisCredentials,
   loadEnvFile,
-  loadSharedConfig,
   logSeedResult,
   releaseLock,
   verifySeedKey,
   withRetry,
 } from './_seed-utils.mjs';
+import {
+  COUNTRY_ALIAS_MAP,
+  createCountryResolvers,
+  isIso2,
+  isIso3,
+  normalizeCountryToken,
+  resolveIso2,
+} from './_country-resolver.mjs';
+
+export { createCountryResolvers, resolveIso2 } from './_country-resolver.mjs';
 
 loadEnvFile(import.meta.url);
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const RESILIENCE_STATIC_INDEX_KEY = 'resilience:static:index:v1';
 export const RESILIENCE_STATIC_META_KEY = 'seed-meta:resilience:static';
@@ -44,116 +48,7 @@ const WHO_BASE = 'https://ghoapi.azureedge.net/api';
 const RSF_RANKING_URL = 'https://rsf.org/en/ranking';
 const EUROSTAT_ENERGY_URL = 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/nrg_ind_id?freq=A';
 const WB_ENERGY_IMPORT_INDICATOR = 'EG.IMP.CONS.ZS';
-const GPI_SOURCE_URL = process.env.RESILIENCE_GPI_URL || 'https://www.visionofhumanity.org/global-peace-index/';
-const FSIN_SOURCE_URL = process.env.RESILIENCE_FSIN_URL || 'https://www.fsinplatform.org/our-data';
-const AQUASTAT_SOURCE_URL = process.env.RESILIENCE_AQUASTAT_URL || 'https://aquastat.fao.org/';
-
-const COUNTRY_NAMES = loadSharedConfig('country-names.json');
-const COUNTRIES_GEOJSON = JSON.parse(
-  readFileSync(join(__dirname, '..', 'public', 'data', 'countries.geojson'), 'utf8'),
-);
-
-const COUNTRY_ALIAS_MAP = {
-  'bahamas the': 'BS',
-  'cape verde': 'CV',
-  'congo brazzaville': 'CG',
-  'congo kinshasa': 'CD',
-  'congo rep': 'CG',
-  'congo dem rep': 'CD',
-  'czech republic': 'CZ',
-  'egypt arab rep': 'EG',
-  'gambia the': 'GM',
-  'hong kong sar china': 'HK',
-  'iran islamic rep': 'IR',
-  'korea dem peoples rep': 'KP',
-  'korea rep': 'KR',
-  'lao pdr': 'LA',
-  'macao sar china': 'MO',
-  'micronesia fed sts': 'FM',
-  'morocco western sahara': 'MA',
-  'north macedonia': 'MK',
-  'occupied palestinian territory': 'PS',
-  'palestinian territories': 'PS',
-  'palestine state of': 'PS',
-  'russian federation': 'RU',
-  'slovak republic': 'SK',
-  'st kitts and nevis': 'KN',
-  'st lucia': 'LC',
-  'st vincent and the grenadines': 'VC',
-  'syrian arab republic': 'SY',
-  'the bahamas': 'BS',
-  'timor leste': 'TL',
-  'turkiye': 'TR',
-  'u s': 'US',
-  'united states of america': 'US',
-  'venezuela rb': 'VE',
-  'viet nam': 'VN',
-  'west bank and gaza': 'PS',
-  'yemen rep': 'YE',
-};
-
-function normalizeCountryToken(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/['’.(),/-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function isIso2(value) {
-  return /^[A-Z]{2}$/.test(String(value || '').trim());
-}
-
-function isIso3(value) {
-  return /^[A-Z]{3}$/.test(String(value || '').trim());
-}
-
-export function createCountryResolvers(countryNames = COUNTRY_NAMES, geojson = COUNTRIES_GEOJSON) {
-  const nameToIso2 = new Map();
-  const iso3ToIso2 = new Map();
-
-  for (const [name, iso2] of Object.entries(countryNames)) {
-    if (isIso2(iso2)) nameToIso2.set(normalizeCountryToken(name), iso2.toUpperCase());
-  }
-
-  for (const [alias, iso2] of Object.entries(COUNTRY_ALIAS_MAP)) {
-    if (isIso2(iso2)) nameToIso2.set(normalizeCountryToken(alias), iso2.toUpperCase());
-  }
-
-  for (const feature of geojson?.features || []) {
-    const properties = feature?.properties || {};
-    const iso2 = String(properties['ISO3166-1-Alpha-2'] || '').toUpperCase();
-    const iso3 = String(properties['ISO3166-1-Alpha-3'] || '').toUpperCase();
-    const name = properties.name;
-    if (isIso2(iso2)) {
-      if (typeof name === 'string' && name.trim()) {
-        nameToIso2.set(normalizeCountryToken(name), iso2);
-      }
-      if (isIso3(iso3)) iso3ToIso2.set(iso3, iso2);
-    }
-  }
-
-  return { nameToIso2, iso3ToIso2 };
-}
-
 const COUNTRY_RESOLVERS = createCountryResolvers();
-
-export function resolveIso2({ iso2, iso3, name }, resolvers = COUNTRY_RESOLVERS) {
-  const upperIso2 = String(iso2 || '').trim().toUpperCase();
-  if (isIso2(upperIso2)) return upperIso2;
-
-  const upperIso3 = String(iso3 || '').trim().toUpperCase();
-  if (isIso3(upperIso3)) {
-    const mapped = resolvers.iso3ToIso2.get(upperIso3);
-    if (mapped) return mapped;
-  }
-
-  const normalizedName = normalizeCountryToken(name);
-  return resolvers.nameToIso2.get(normalizedName) || null;
-}
 
 export function countryRedisKey(iso2) {
   return `${RESILIENCE_STATIC_PREFIX}${iso2}`;
@@ -215,21 +110,6 @@ async function fetchJson(url, { timeoutMs = 30_000, accept = 'application/json' 
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
-}
-
-async function fetchBinary(url, { timeoutMs = 30_000, accept = '*/*' } = {}) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: accept,
-      'User-Agent': CHROME_UA,
-    },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return {
-    buffer: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers.get('content-type') || '',
-  };
 }
 
 function parseWorldBankPayload(raw, indicatorId) {
@@ -463,7 +343,7 @@ export function parseRsfRanking(html) {
 export async function fetchRsfDataset() {
   const { text } = await withRetry(() => fetchText(RSF_RANKING_URL), 2, 750);
   const parsed = parseRsfRanking(text);
-  if (parsed.size === 0) throw new Error('RSF ranking page did not expose any country rows');
+  if (parsed.size < 100) throw new Error(`RSF ranking page returned only ${parsed.size} countries (expected 180+)`);
   return parsed;
 }
 
@@ -625,150 +505,106 @@ function parseDelimitedText(text, delimiter) {
   });
 }
 
-async function parseTabularPayload(buffer, contentType, sourceUrl) {
-  const lowerType = String(contentType || '').toLowerCase();
-  if (lowerType.includes('application/json') || lowerType.includes('+json')) {
-    const json = JSON.parse(buffer.toString('utf8'));
-    if (Array.isArray(json)) return json;
-    if (Array.isArray(json?.data)) return json.data;
-    if (Array.isArray(json?.rows)) return json.rows;
-    throw new Error('JSON payload did not contain an array');
+async function fetchGpiDataset() {
+  const currentYear = new Date().getUTCFullYear();
+  let csvText;
+  let resolvedYear = currentYear;
+
+  const urlForYear = (yr) =>
+    `https://www.visionofhumanity.org/wp-content/uploads/${yr}/06/GPI_${yr}_${yr}.csv`;
+
+  try {
+    ({ text: csvText } = await withRetry(() => fetchText(urlForYear(currentYear), { accept: 'text/csv' }), 1, 750));
+  } catch {
+    resolvedYear = currentYear - 1;
+    ({ text: csvText } = await withRetry(() => fetchText(urlForYear(resolvedYear), { accept: 'text/csv' }), 2, 750));
   }
 
-  if (lowerType.includes('text/csv') || lowerType.includes('application/csv') || sourceUrl.endsWith('.csv')) {
-    return parseDelimitedText(buffer.toString('utf8'), ',');
-  }
-
-  if (lowerType.includes('text/tab-separated-values') || sourceUrl.endsWith('.tsv')) {
-    return parseDelimitedText(buffer.toString('utf8'), '\t');
-  }
-
-  if (
-    lowerType.includes('spreadsheetml')
-    || lowerType.includes('application/vnd.ms-excel')
-    || sourceUrl.endsWith('.xlsx')
-    || sourceUrl.endsWith('.xls')
-  ) {
-    let ExcelJS;
-    try {
-      ({ default: ExcelJS } = await import('exceljs'));
-    } catch (error) {
-      throw new Error(`Excel parsing unavailable (${error.message})`);
-    }
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer);
-    const worksheet = workbook.worksheets[0];
-    if (!worksheet) return [];
-    const rows = [];
-    const headerRow = worksheet.getRow(1).values.slice(1).map((value) => String(value || '').trim());
-    for (let rowIdx = 2; rowIdx <= worksheet.rowCount; rowIdx += 1) {
-      const row = worksheet.getRow(rowIdx).values.slice(1);
-      if (!row.some((cell) => String(cell ?? '').trim())) continue;
-      rows.push(Object.fromEntries(headerRow.map((header, idx) => [header, row[idx] ?? ''])));
-    }
-    return rows;
-  }
-
-  throw new Error(`Unsupported content-type ${contentType || '(missing)'}`);
-}
-
-function pickField(row, fieldNames) {
-  for (const field of fieldNames) {
-    if (row[field] != null && String(row[field]).trim()) return row[field];
-    const matchedKey = Object.keys(row).find((key) => normalizeCountryToken(key) === normalizeCountryToken(field));
-    if (matchedKey && String(row[matchedKey]).trim()) return row[matchedKey];
-  }
-  return '';
-}
-
-async function fetchOptionalTabularRows(sourceUrl) {
-  const { buffer, contentType } = await withRetry(() => fetchBinary(sourceUrl), 1, 750);
-  return parseTabularPayload(buffer, contentType, sourceUrl);
-}
-
-async function fetchOptionalGpiDataset() {
-  if (!process.env.RESILIENCE_GPI_URL) {
-    throw new Error('GPI: no machine-readable source configured; set RESILIENCE_GPI_URL');
-  }
-  const rows = await fetchOptionalTabularRows(GPI_SOURCE_URL);
+  const rows = parseDelimitedText(csvText, ',');
   const parsed = new Map();
   for (const row of rows) {
-    const iso2 = resolveIso2({
-      iso2: pickField(row, ['iso2', 'country_code']),
-      iso3: pickField(row, ['iso3', 'country_iso3']),
-      name: pickField(row, ['country', 'country_name', 'name']),
-    });
-    const rank = safeNum(pickField(row, ['rank', 'ranking']));
-    const score = safeNum(pickField(row, ['score', 'gpi_score', 'overall_score']));
-    const year = safeNum(pickField(row, ['year', 'edition']));
-    if (!iso2 || rank == null || score == null) continue;
+    const iso3 = String(row.code || '').trim().toUpperCase();
+    const iso2 = resolveIso2({ iso3 });
+    if (!iso2) continue;
+    const rank = safeNum(row.rank);
+    const score = safeNum(row.index_over);
+    const year = safeNum(row.year) ?? resolvedYear;
+    if (rank == null || score == null) continue;
     parsed.set(iso2, {
-      source: 'gpi-bulk',
+      source: 'gpi-voh',
       rank,
       score: roundMetric(score, 3),
       year,
     });
   }
-  if (parsed.size === 0) throw new Error('GPI: machine-readable source returned no rows');
+  if (parsed.size < 50) throw new Error(`GPI CSV returned only ${parsed.size} countries (expected 163+)`);
   return parsed;
 }
 
-async function fetchOptionalFaoDataset() {
-  if (!process.env.RESILIENCE_FSIN_URL) {
-    throw new Error('FSIN: bulk source blocked or unavailable; set RESILIENCE_FSIN_URL');
-  }
-  const rows = await fetchOptionalTabularRows(FSIN_SOURCE_URL);
+async function fetchFsinDataset() {
+  const hdxUrl =
+    'https://data.humdata.org/dataset/7a7e7428-b8d7-4d2e-91d3-19100500e016/resource/2e4f7475-105b-4fae-81f7-7c32076096b6/download/ipc_global_national_wide_latest.csv';
+  const { text: csvText } = await withRetry(() => fetchText(hdxUrl, { accept: 'text/csv' }), 2, 750);
+  const rows = parseDelimitedText(csvText, ',');
   const parsed = new Map();
   for (const row of rows) {
-    const iso2 = resolveIso2({
-      iso2: pickField(row, ['iso2', 'country_code']),
-      iso3: pickField(row, ['iso3', 'country_iso3']),
-      name: pickField(row, ['country', 'country_name', 'area']),
-    });
+    const iso3 = String(row['Country (ISO3)'] || '').trim().toUpperCase();
+    const iso2 = resolveIso2({ iso3 });
     if (!iso2) continue;
-    const year = safeNum(pickField(row, ['year', 'report_year']));
-    const peopleInCrisis = safeNum(pickField(row, ['people_in_crisis', 'people', 'population']));
-    const phase = pickField(row, ['phase', 'ipc_phase', 'severity']);
-    const source = pickField(row, ['source', 'dataset']) || 'fsin';
-    if (peopleInCrisis == null && !phase) continue;
+    const phase3plus = safeNum(row['Phase 3+ #']);
+    const phase4 = safeNum(row['Phase 4 #']);
+    const phase5 = safeNum(row['Phase 5 #']);
+    if (phase3plus == null && phase4 == null && phase5 == null) continue;
+    const yearCandidates = Object.keys(row)
+      .filter((k) => /period|date|year/i.test(k))
+      .map((k) => safeNum(String(row[k]).slice(0, 4)))
+      .filter((v) => v != null && v > 2000);
+    const year = yearCandidates.length ? Math.max(...yearCandidates) : null;
     parsed.set(iso2, {
-      source: 'fsin-bulk',
+      source: 'hdx-ipc',
       year,
-      peopleInCrisis: roundMetric(peopleInCrisis, 0),
-      phase: phase || null,
-      dataset: source,
+      phase3plus: phase3plus != null ? roundMetric(phase3plus, 0) : null,
+      phase4: phase4 != null ? roundMetric(phase4, 0) : null,
+      phase5: phase5 != null ? roundMetric(phase5, 0) : null,
     });
   }
-  if (parsed.size === 0) throw new Error('FSIN: machine-readable source returned no rows');
+  if (parsed.size === 0) throw new Error('HDX IPC CSV returned no usable rows');
   return parsed;
 }
 
-async function fetchOptionalAquastatDataset() {
-  if (!process.env.RESILIENCE_AQUASTAT_URL) {
-    throw new Error('AQUASTAT: no stable machine-readable feed configured; set RESILIENCE_AQUASTAT_URL');
-  }
-  const rows = await fetchOptionalTabularRows(AQUASTAT_SOURCE_URL);
-  const parsed = new Map();
+async function fetchAquastatDataset() {
+  const aquastatUrl =
+    'https://api.data.apps.fao.org/api/v2/bigquery?sql_url=https://data.apps.fao.org/catalog/dataset/945666e6-7803-4621-b8ef-cfd885a84596/resource/4a000a1b-24f0-4328-aab6-b9b525892090/download/query_en.sql&area=World&variable=4550,4192,4190&year=2021&type=country';
+  const { text: csvText } = await withRetry(() => fetchText(aquastatUrl, { accept: 'text/csv' }), 2, 750);
+  const rows = parseDelimitedText(csvText, ',');
+
+  const VARIABLE_MAP = {
+    '4550': 'waterStress',
+    '4192': 'dependencyRatio',
+    '4190': 'renewablePerCapita',
+  };
+
+  const byCountry = new Map();
   for (const row of rows) {
-    const iso2 = resolveIso2({
-      iso2: pickField(row, ['iso2', 'country_code']),
-      iso3: pickField(row, ['iso3', 'country_iso3']),
-      name: pickField(row, ['country', 'country_name', 'area']),
-    });
+    const countryName = String(row.Country || '').trim();
+    const iso2 = resolveIso2({ name: countryName });
     if (!iso2) continue;
-    const value = safeNum(pickField(row, ['value', 'numeric_value', 'measure_value']));
-    const year = safeNum(pickField(row, ['year', 'time']));
-    const indicator = pickField(row, ['indicator', 'measure', 'variable']);
-    if (value == null && !indicator) continue;
-    parsed.set(iso2, {
-      source: 'aquastat',
-      year,
-      indicator: indicator || null,
-      value: roundMetric(value),
-    });
+    const varCode = String(row.VariableCode || row.Variable_Id || '').trim();
+    const metricKey = VARIABLE_MAP[varCode];
+    if (!metricKey) continue;
+    const value = safeNum(row.Value);
+    const year = safeNum(row.Year);
+    if (value == null) continue;
+
+    const existing = byCountry.get(iso2) || { source: 'fao-aquastat' };
+    const prev = existing[metricKey];
+    if (!prev || (year != null && (prev.year == null || year > prev.year))) {
+      existing[metricKey] = { value: roundMetric(value), year };
+    }
+    byCountry.set(iso2, existing);
   }
-  if (parsed.size === 0) throw new Error('AQUASTAT: machine-readable source returned no rows');
-  return parsed;
+  if (byCountry.size === 0) throw new Error('AQUASTAT CSV returned no usable rows');
+  return byCountry;
 }
 
 export function finalizeCountryPayloads(datasetMaps, seedYear = nowSeedYear(), seededAt = new Date().toISOString()) {
@@ -891,11 +727,11 @@ async function fetchAllDatasetMaps() {
   const adapters = [
     { key: 'wgi', fetcher: fetchWgiDataset },
     { key: 'infrastructure', fetcher: fetchInfrastructureDataset },
-    { key: 'gpi', fetcher: fetchOptionalGpiDataset },
+    { key: 'gpi', fetcher: fetchGpiDataset },
     { key: 'rsf', fetcher: fetchRsfDataset },
     { key: 'who', fetcher: fetchWhoDataset },
-    { key: 'fao', fetcher: fetchOptionalFaoDataset },
-    { key: 'aquastat', fetcher: fetchOptionalAquastatDataset },
+    { key: 'fao', fetcher: fetchFsinDataset },
+    { key: 'aquastat', fetcher: fetchAquastatDataset },
     { key: 'iea', fetcher: fetchEnergyDependencyDataset },
   ];
 
