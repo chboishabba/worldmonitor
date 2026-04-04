@@ -39,6 +39,7 @@ export const DIGEST_ACCUMULATOR_TTL = 172800; // 48h — lookback window for dig
  */
 export const SIMULATION_OUTCOME_LATEST_KEY = 'forecast:simulation-outcome:latest';
 export const SIMULATION_PACKAGE_LATEST_KEY = 'forecast:simulation-package:latest';
+export const REGULATORY_ACTIONS_KEY = 'regulatory:actions:v1';
 export const CLIMATE_ANOMALIES_KEY = 'climate:anomalies:v2';
 export const CLIMATE_AIR_QUALITY_KEY = 'climate:air-quality:v1';
 export const CLIMATE_ZONE_NORMALS_KEY = 'climate:zone-normals:v1';

@@ -11,6 +11,7 @@ const seedSrc = readFileSync('scripts/seed-regulatory-actions.mjs', 'utf8');
 
 const pureSrc = seedSrc
   .replace(/^import\s.*$/gm, '')
+  .replace(/loadEnvFile\([^)]+\);\n/, '')
   .replace(/const isDirectRun[\s\S]*?}\n\nexport\s*{[\s\S]*?};?\s*$/m, '');
 
 const ctx = vm.createContext({
@@ -26,6 +27,8 @@ const ctx = vm.createContext({
   URLSearchParams,
   AbortSignal,
   CHROME_UA: 'Mozilla/5.0 (test)',
+  loadEnvFile: () => {},
+  runSeed: async () => {},
 });
 
 vm.runInContext(pureSrc, ctx);
@@ -40,6 +43,10 @@ const {
   normalizeFeedItems,
   dedupeAndSortActions,
   fetchAllFeeds,
+  classifyAction,
+  buildSeedPayload,
+  fetchRegulatoryActionPayload,
+  main,
 } = ctx;
 
 describe('decodeEntities', () => {
@@ -209,5 +216,148 @@ describe('fetchAllFeeds', () => {
       fetchAllFeeds(async () => { throw new Error('nope'); }, feeds),
       /All regulatory feeds failed/
     );
+  });
+});
+
+describe('classifyAction', () => {
+  it('marks high priority actions from combined title and description text', () => {
+    const action = normalize(classifyAction({
+      id: 'sec-a',
+      agency: 'SEC',
+      title: 'SEC action against issuer',
+      description: 'The SEC secured a permanent injunction for accounting fraud.',
+      link: 'https://example.test/sec-a',
+      publishedAt: '2026-03-30T18:00:00.000Z',
+    }));
+
+    assert.equal(action.tier, 'high');
+    assert.deepEqual(action.matchedKeywords, ['fraud', 'injunction']);
+  });
+
+  it('marks medium actions from description text', () => {
+    const medium = normalize(classifyAction({
+      id: 'fed-a',
+      agency: 'Federal Reserve',
+      title: 'Federal Reserve update',
+      description: 'The board resolves action through a remedial action plan.',
+      link: 'https://example.test/fed-a',
+      publishedAt: '2026-03-30T18:00:00.000Z',
+    }));
+
+    assert.equal(medium.tier, 'medium');
+    assert.deepEqual(medium.matchedKeywords, ['resolves action', 'remedial action']);
+  });
+
+  it('uses low only for explicit routine notice titles', () => {
+    const low = normalize(classifyAction({
+      id: 'finra-a',
+      agency: 'FINRA',
+      title: 'Technical Notice 26-01',
+      description: 'Routine operational bulletin for members.',
+      link: 'https://example.test/finra-a',
+      publishedAt: '2026-03-30T18:00:00.000Z',
+    }));
+
+    assert.equal(low.tier, 'low');
+    assert.deepEqual(low.matchedKeywords, []);
+  });
+
+  it('falls back to unknown for unmatched actions', () => {
+    const unknown = normalize(classifyAction({
+      id: 'fdic-a',
+      agency: 'FDIC',
+      title: 'FDIC consumer outreach update',
+      description: 'General event recap for community stakeholders.',
+      link: 'https://example.test/fdic-a',
+      publishedAt: '2026-03-30T18:00:00.000Z',
+    }));
+
+    assert.equal(unknown.tier, 'unknown');
+    assert.deepEqual(unknown.matchedKeywords, []);
+  });
+});
+
+describe('buildSeedPayload', () => {
+  it('adds fetchedAt and aggregate counts', () => {
+    const payload = normalize(buildSeedPayload([
+      {
+        id: 'sec-a',
+        agency: 'SEC',
+        title: 'SEC action against issuer',
+        description: 'The SEC secured a permanent injunction for accounting fraud.',
+        link: 'https://example.test/sec-a',
+        publishedAt: '2026-03-30T18:00:00.000Z',
+      },
+      {
+        id: 'fed-a',
+        agency: 'Federal Reserve',
+        title: 'Federal Reserve update',
+        description: 'The board resolves action through a remedial action plan.',
+        link: 'https://example.test/fed-a',
+        publishedAt: '2026-03-29T18:00:00.000Z',
+      },
+      {
+        id: 'finra-a',
+        agency: 'FINRA',
+        title: 'Regulatory Notice 26-01',
+        description: 'Routine bulletin for members.',
+        link: 'https://example.test/finra-a',
+        publishedAt: '2026-03-28T18:00:00.000Z',
+      },
+      {
+        id: 'fdic-a',
+        agency: 'FDIC',
+        title: 'FDIC consumer outreach update',
+        description: 'General event recap for community stakeholders.',
+        link: 'https://example.test/fdic-a',
+        publishedAt: '2026-03-27T18:00:00.000Z',
+      },
+    ], 1711718400000));
+
+    assert.equal(payload.fetchedAt, 1711718400000);
+    assert.equal(payload.recordCount, 4);
+    assert.equal(payload.highCount, 1);
+    assert.equal(payload.mediumCount, 1);
+    assert.equal(payload.actions[2].tier, 'low');
+    assert.equal(payload.actions[3].tier, 'unknown');
+  });
+});
+
+describe('fetchRegulatoryActionPayload', () => {
+  it('returns classified payload from fetched actions', async () => {
+    const payload = normalize(await fetchRegulatoryActionPayload(async (url) => ({
+      ok: true,
+      text: async () => `<rss><channel><item><title>FDIC update</title><description>FDIC resolves action through a remedial action plan.</description><link>${url}/item</link><pubDate>Mon, 30 Mar 2026 18:00:00 GMT</pubDate></item></channel></rss>`,
+    })));
+
+    assert.equal(payload.actions.length, 6);
+    assert.equal(payload.recordCount, 6);
+    assert.ok(typeof payload.fetchedAt === 'number');
+    assert.equal(payload.actions[0].tier, 'medium');
+    assert.deepEqual(payload.actions[0].matchedKeywords, ['resolves action', 'remedial action']);
+  });
+});
+
+describe('main', () => {
+  it('wires runSeed with the regulatory key, TTL, and validateFn', async () => {
+    const calls = [];
+    const runSeedStub = async (domain, resource, canonicalKey, fetchFn, opts) => {
+      calls.push({ domain, resource, canonicalKey, opts, payload: await fetchFn() });
+      return 'ok';
+    };
+    const fetchStub = async (url) => ({
+      ok: true,
+      text: async () => `<rss><channel><item><title>CFTC Issues Advisory</title><link>${url}/item</link><pubDate>Mon, 30 Mar 2026 18:00:00 GMT</pubDate></item></channel></rss>`,
+    });
+
+    const result = await main(fetchStub, runSeedStub);
+    assert.equal(result, 'ok');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].domain, 'regulatory');
+    assert.equal(calls[0].resource, 'actions');
+    assert.equal(calls[0].canonicalKey, 'regulatory:actions:v1');
+    assert.equal(calls[0].opts.ttlSeconds, 21600);
+    assert.equal(calls[0].opts.validateFn({ actions: [] }), true);
+    assert.equal(calls[0].payload.recordCount, 6);
   });
 });

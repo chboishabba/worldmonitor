@@ -2,12 +2,33 @@
 // @ts-check
 
 import { pathToFileURL } from 'node:url';
-import { CHROME_UA } from './_seed-utils.mjs';
+import { CHROME_UA, loadEnvFile, runSeed } from './_seed-utils.mjs';
 
+loadEnvFile(import.meta.url);
+
+const CANONICAL_KEY = 'regulatory:actions:v1';
 const FEED_TIMEOUT_MS = 15_000;
+const TTL_SECONDS = 21600;
 const XML_ACCEPT = 'application/atom+xml, application/rss+xml, application/xml, text/xml, */*';
 const SEC_USER_AGENT = 'WorldMonitor/2.0 (monitor@worldmonitor.app)';
 const DEFAULT_FETCH = (...args) => globalThis.fetch(...args);
+const HIGH_KEYWORDS = [
+  'enforcement', 'charges', 'charged', 'fraud', 'failure', 'failed bank',
+  'emergency', 'halt', 'suspension', 'suspended', 'cease', 'desist',
+  'penalty', 'fine', 'fined', 'settlement', 'indictment', 'manipulation',
+  'ban', 'revocation', 'insolvency', 'injunction', 'cease and desist',
+  'cease-and-desist', 'consent order', 'debarment', 'suspension order',
+];
+const MEDIUM_KEYWORDS = [
+  'proposed rule', 'final rule', 'rulemaking', 'guidance', 'warning',
+  'advisory', 'review', 'examination', 'investigation',
+  'stress test', 'capital requirement', 'disclosure requirement',
+  'resolves action', 'settled charges', 'administrative proceeding', 'remedial action',
+];
+const LOW_PRIORITY_TITLE_PATTERNS = [
+  /^(Regulatory|Information|Technical) Notice\b/i,
+  /\bmonthly (highlights|bulletin)\b/i,
+];
 
 const REGULATORY_FEEDS = [
   { agency: 'SEC', url: 'https://www.sec.gov/news/pressreleases.rss', userAgent: SEC_USER_AGENT },
@@ -229,10 +250,77 @@ async function fetchAllFeeds(fetchImpl = DEFAULT_FETCH, feeds = REGULATORY_FEEDS
   return dedupeAndSortActions(actions);
 }
 
-async function main(fetchImpl = DEFAULT_FETCH) {
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function compileKeywordPattern(keyword) {
+  const pattern = `\\b${escapeRegex(keyword.toLowerCase()).replace(/\s+/g, '\\s+')}\\b`;
+  return { keyword, regex: new RegExp(pattern, 'i') };
+}
+
+const HIGH_KEYWORD_PATTERNS = HIGH_KEYWORDS.map(compileKeywordPattern);
+const MEDIUM_KEYWORD_PATTERNS = MEDIUM_KEYWORDS.map(compileKeywordPattern);
+
+function findMatchedKeywords(text, keywordPatterns) {
+  const normalizedText = stripHtml(text).toLowerCase();
+  return keywordPatterns.filter(({ regex }) => regex.test(normalizedText)).map(({ keyword }) => keyword);
+}
+
+function buildClassificationText(action) {
+  return [action.title, action.description].filter(Boolean).join(' ');
+}
+
+function isLowPriorityRoutineTitle(title) {
+  const normalizedTitle = stripHtml(title);
+  return LOW_PRIORITY_TITLE_PATTERNS.some((pattern) => pattern.test(normalizedTitle));
+}
+
+function classifyAction(action) {
+  const classificationText = buildClassificationText(action);
+  const highMatches = findMatchedKeywords(classificationText, HIGH_KEYWORD_PATTERNS);
+  if (highMatches.length > 0) {
+    return { ...action, tier: 'high', matchedKeywords: [...new Set(highMatches)] };
+  }
+
+  if (isLowPriorityRoutineTitle(action.title)) {
+    return { ...action, tier: 'low', matchedKeywords: [] };
+  }
+
+  const mediumMatches = findMatchedKeywords(classificationText, MEDIUM_KEYWORD_PATTERNS);
+  if (mediumMatches.length > 0) {
+    return { ...action, tier: 'medium', matchedKeywords: [...new Set(mediumMatches)] };
+  }
+
+  return { ...action, tier: 'unknown', matchedKeywords: [] };
+}
+
+function buildSeedPayload(actions, fetchedAt = Date.now()) {
+  const classified = actions.map(classifyAction);
+  const highCount = classified.filter((action) => action.tier === 'high').length;
+  const mediumCount = classified.filter((action) => action.tier === 'medium').length;
+
+  return {
+    actions: classified,
+    fetchedAt,
+    recordCount: classified.length,
+    highCount,
+    mediumCount,
+  };
+}
+
+async function fetchRegulatoryActionPayload(fetchImpl = DEFAULT_FETCH) {
   const actions = await fetchAllFeeds(fetchImpl);
-  process.stdout.write(`${JSON.stringify(actions, null, 2)}\n`);
-  return actions;
+  return buildSeedPayload(actions, Date.now());
+}
+
+async function main(fetchImpl = DEFAULT_FETCH, runSeedImpl = runSeed) {
+  return runSeedImpl('regulatory', 'actions', CANONICAL_KEY, () => fetchRegulatoryActionPayload(fetchImpl), {
+    ttlSeconds: TTL_SECONDS,
+    validateFn: (data) => Array.isArray(data?.actions),
+    recordCount: (data) => data?.recordCount || 0,
+    sourceVersion: 'regulatory-rss-v1',
+  });
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -245,18 +333,27 @@ if (isDirectRun) {
 }
 
 export {
+  CANONICAL_KEY,
   CHROME_UA,
   FEED_TIMEOUT_MS,
+  HIGH_KEYWORDS,
+  MEDIUM_KEYWORDS,
   REGULATORY_FEEDS,
   SEC_USER_AGENT,
+  TTL_SECONDS,
   buildActionId,
+  buildSeedPayload,
   canonicalizeLink,
+  classifyAction,
   decodeEntities,
   dedupeAndSortActions,
   extractAtomLink,
   fetchAllFeeds,
   fetchFeed,
+  fetchRegulatoryActionPayload,
+  findMatchedKeywords,
   getTagValue,
+  isLowPriorityRoutineTitle,
   main,
   normalizeFeedItems,
   parseAtomEntries,
