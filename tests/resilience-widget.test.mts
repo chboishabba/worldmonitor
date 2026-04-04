@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   formatResilienceChange30d,
   formatResilienceConfidence,
+  formatResilienceVisualLevelLabel,
   getResilienceDomainLabel,
   getResilienceTrendArrow,
   getResilienceVisualLevel,
@@ -26,6 +27,8 @@ test('getResilienceVisualLevel maps the score thresholds from the widget spec', 
   assert.equal(getResilienceVisualLevel(79), 'high');
   assert.equal(getResilienceVisualLevel(60), 'high');
   assert.equal(getResilienceVisualLevel(59), 'moderate');
+  assert.equal(getResilienceVisualLevel(40), 'moderate');
+  assert.equal(getResilienceVisualLevel(39), 'low');
   assert.equal(getResilienceVisualLevel(20), 'low');
   assert.equal(getResilienceVisualLevel(19), 'very_low');
   assert.equal(getResilienceVisualLevel(Number.NaN), 'unknown');
@@ -54,8 +57,15 @@ test('formatResilienceConfidence shows sparse-data copy when low confidence is s
   );
 });
 
+test('formatResilienceVisualLevelLabel expands all underscore separators', () => {
+  assert.equal(formatResilienceVisualLevelLabel('very_high'), 'VERY HIGH');
+  assert.equal(formatResilienceVisualLevelLabel('very_low'), 'VERY LOW');
+});
+
 test('formatResilienceChange30d preserves explicit sign formatting', () => {
   assert.equal(formatResilienceChange30d(2.41), '30d +2.4');
   assert.equal(formatResilienceChange30d(-1.26), '30d -1.3');
   assert.equal(formatResilienceChange30d(0), '30d 0.0');
+  assert.equal(formatResilienceChange30d(0.04), '30d 0.0');
+  assert.equal(formatResilienceChange30d(-0.04), '30d 0.0');
 });

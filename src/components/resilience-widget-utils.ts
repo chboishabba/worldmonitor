@@ -38,13 +38,18 @@ export function getResilienceDomainLabel(domainId: string): string {
   return DOMAIN_LABELS[domainId] ?? domainId;
 }
 
+export function formatResilienceVisualLevelLabel(level: ResilienceVisualLevel): string {
+  return level.replace(/_/g, ' ').toUpperCase();
+}
+
 export function formatResilienceConfidence(data: ResilienceScoreResponse): string {
   if (data.lowConfidence) return 'Low confidence — sparse data';
   return `Confidence ${data.cronbachAlpha.toFixed(2)} ✓`;
 }
 
 export function formatResilienceChange30d(change30d: number): string {
-  const rounded = Number.isFinite(change30d) ? change30d.toFixed(1) : '0.0';
-  const sign = change30d > 0 ? '+' : '';
-  return `30d ${sign}${rounded}`;
+  const rounded = Number.isFinite(change30d) ? Number(change30d.toFixed(1)) : 0;
+  const normalized = Object.is(rounded, -0) ? 0 : rounded;
+  const sign = normalized > 0 ? '+' : '';
+  return `30d ${sign}${normalized.toFixed(1)}`;
 }

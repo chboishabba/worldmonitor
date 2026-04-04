@@ -10,6 +10,7 @@ import {
   RESILIENCE_VISUAL_LEVEL_COLORS,
   formatResilienceChange30d,
   formatResilienceConfidence,
+  formatResilienceVisualLevelLabel,
   getResilienceDomainLabel,
   getResilienceTrendArrow,
   getResilienceVisualLevel,
@@ -233,7 +234,7 @@ export class ResilienceWidget {
 
   private renderScoreCard(data: ResilienceScoreResponse, preview = false): HTMLElement {
     const visualLevel = getResilienceVisualLevel(data.overallScore);
-    const levelLabel = visualLevel.replace('_', ' ').toUpperCase();
+    const levelLabel = formatResilienceVisualLevelLabel(visualLevel);
     const levelColor = RESILIENCE_VISUAL_LEVEL_COLORS[visualLevel];
 
     return h(
