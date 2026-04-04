@@ -138,7 +138,7 @@ describe('resilience handlers', () => {
     assert.equal(response.level, response.overallScore >= 70 ? 'high' : response.overallScore >= 40 ? 'medium' : 'low');
     assert.ok(response.cronbachAlpha >= 0);
     assert.equal(response.trend, 'rising');
-    assert.ok(response.change30d > 0);
+    assert.equal(response.change30d, 0, 'change30d should stay neutral when the history does not cover a full 30-day window');
     assert.equal(typeof response.lowConfidence, 'boolean');
 
     const cachedScore = redis.get('resilience:score:US');

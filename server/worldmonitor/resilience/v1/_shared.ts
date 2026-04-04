@@ -59,6 +59,12 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function isoDateDaysAgo(days: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
 function classifyResilienceLevel(score: number): string {
   if (score >= 70) return 'high';
   if (score >= 40) return 'medium';
@@ -135,6 +141,14 @@ function computeLowConfidence(dimensions: ResilienceDimension[], cronbach: numbe
   return cronbach < LOW_CONFIDENCE_ALPHA_THRESHOLD;
 }
 
+function computeChange30d(history: ResilienceHistoryPoint[], overallScore: number): number {
+  const baselineDate = isoDateDaysAgo(30);
+  const baseline = [...history]
+    .reverse()
+    .find((point) => point.date <= baselineDate);
+  return baseline == null ? 0 : round(overallScore - baseline.score);
+}
+
 async function readHistory(countryCode: string): Promise<ResilienceHistoryPoint[]> {
   const result = await runRedisPipeline([
     ['ZRANGE', historyKey(countryCode), 0, -1, 'WITHSCORES'],
@@ -180,7 +194,6 @@ export async function ensureResilienceScoreCached(countryCode: string): Promise<
       const history = (await readHistory(normalizedCountryCode))
         .filter((point) => point.date !== todayIsoDate());
       const scoreSeries = [...history.map((point) => point.score), overallScore];
-      const oldestScore = history[0]?.score;
 
       await appendHistory(normalizedCountryCode, overallScore);
 
@@ -191,7 +204,7 @@ export async function ensureResilienceScoreCached(countryCode: string): Promise<
         domains,
         cronbachAlpha: cronbach,
         trend: detectTrend(scoreSeries),
-        change30d: oldestScore == null ? 0 : round(overallScore - oldestScore),
+        change30d: computeChange30d(history, overallScore),
         lowConfidence: computeLowConfidence(dimensions, cronbach),
       };
     },
