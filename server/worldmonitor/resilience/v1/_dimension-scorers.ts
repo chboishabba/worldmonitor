@@ -1,4 +1,5 @@
 import countryNames from '../../../../shared/country-names.json';
+import { normalizeCountryToken } from '../../../_shared/country-token';
 import { getCachedJson } from '../../../_shared/redis';
 import { ISO2_TO_ISO3 as CONFLICT_ISO2_TO_ISO3 } from '../../conflict/v1/_shared';
 
@@ -213,17 +214,6 @@ export const RESILIENCE_DOMAIN_ORDER: ResilienceDomainId[] = [
   'health-food',
 ];
 
-function normalizeCountryToken(value: unknown): string {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/['’.(),/-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -272,7 +262,7 @@ function weightedBlend(metrics: WeightedMetric[]): ResilienceDimensionScore {
   const availableWeight = available.reduce((sum, metric) => sum + metric.weight, 0);
 
   if (!availableWeight || !totalWeight) {
-    return { score: 50, coverage: 0 };
+    return { score: 0, coverage: 0 };
   }
 
   const weightedScore = available.reduce((sum, metric) => sum + (metric.score || 0) * metric.weight, 0) / availableWeight;
@@ -306,6 +296,7 @@ function matchesCountryText(value: unknown, countryCode: string): boolean {
   const normalized = normalizeCountryToken(value);
   if (!normalized) return false;
   for (const alias of COUNTRY_NAME_ALIASES.get(countryCode.toUpperCase()) ?? []) {
+    if (!alias.includes(' ') && alias.length < 6) continue;
     if (` ${normalized} `.includes(` ${alias} `)) return true;
   }
   return false;
@@ -558,6 +549,7 @@ function scoreAquastatValue(record: ResilienceStaticCountryRecord | null): numbe
       ? normalizeHigherBetter(value, 0, 100)
       : normalizeHigherBetter(value, 0, 5000);
   }
+  console.warn(`[Resilience] AQUASTAT indicator "${record?.aquastat?.indicator}" did not match known keywords, using value-range heuristic`);
   return value <= 100
     ? normalizeHigherBetter(value, 0, 100)
     : normalizeLowerBetter(value, 0, 5000);
