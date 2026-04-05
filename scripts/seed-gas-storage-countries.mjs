@@ -128,7 +128,7 @@ export function buildCountriesPayload(rawEntries) {
 
 async function fetchCountryData(iso2) {
   const apiKey = process.env.GIE_API_KEY || process.env.AGSI_API_KEY || '';
-  const url = `${GIE_API_BASE}?type=country&country_code=${iso2}&size=3`;
+  const url = `${GIE_API_BASE}?country=${iso2}&size=3`;
   const headers = {
     Accept: 'application/json',
     'User-Agent': CHROME_UA,
