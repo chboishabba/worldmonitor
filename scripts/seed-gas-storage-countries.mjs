@@ -20,7 +20,7 @@ export const GAS_STORAGE_TTL_SECONDS = 259200; // 3 days = 3× daily cron
 
 const LOCK_DOMAIN = 'energy:gas-storage-countries';
 const LOCK_TTL_MS = 20 * 60 * 1000;
-const MIN_VALID_COUNTRIES = 15;
+const MIN_VALID_COUNTRIES = 24;
 const BATCH_SIZE = 4;
 const BATCH_DELAY_MS = 200;
 
@@ -170,9 +170,12 @@ async function preservePreviousSnapshot(errorMsg) {
     GAS_STORAGE_TTL_SECONDS,
   );
 
+  // Preserve old fetchedAt so health staleness detection stays accurate.
+  // A fresh fetchedAt on a failed run would make health report OK indefinitely.
+  const existingMeta = await redisGet(GAS_STORAGE_META_KEY).catch(() => null);
   const metaPayload = {
-    fetchedAt: Date.now(),
-    recordCount: 0,
+    fetchedAt: existingMeta?.fetchedAt ?? 0,
+    recordCount: existingMeta?.recordCount ?? 0,
     sourceVersion: 'gie-agsi-plus-countries-v1',
     status: 'error',
     error: errorMsg,

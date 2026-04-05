@@ -368,7 +368,9 @@ export default async function handler(req) {
     if (seedCfg) {
       const metaRaw = keyMetaValues.get(seedCfg.key);
       const meta = parseRedisValue(metaRaw);
-      if (meta?.fetchedAt) {
+      if (meta?.status === 'error') {
+        seedStale = true;
+      } else if (meta?.fetchedAt) {
         seedAge = Math.round((now - meta.fetchedAt) / 60_000);
         seedStale = seedAge > seedCfg.maxStaleMin;
       } else {
@@ -434,7 +436,9 @@ export default async function handler(req) {
     if (seedCfg) {
       const metaRaw = keyMetaValues.get(seedCfg.key);
       const meta = parseRedisValue(metaRaw);
-      if (meta?.fetchedAt) {
+      if (meta?.status === 'error') {
+        seedStale = true;
+      } else if (meta?.fetchedAt) {
         seedAge = Math.round((now - meta.fetchedAt) / 60_000);
         seedStale = seedAge > seedCfg.maxStaleMin;
       } else {

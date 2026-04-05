@@ -170,12 +170,12 @@ describe('buildCountriesPayload', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Validation gate — throws when fewer than 15 valid countries
+// Validation gate — throws when fewer than 24 valid countries
 // ---------------------------------------------------------------------------
 
 describe('validation gate', () => {
-  it('throws when fewer than 15 countries have valid fillPct', () => {
-    // buildCountriesPayload returns < 15 entries → main() would throw
+  it('throws when fewer than 24 countries have valid fillPct', () => {
+    // buildCountriesPayload returns < 24 entries → main() would throw
     const invalidEntries = Array.from({ length: 10 }, (_, i) => ({
       iso2: `C${i}`,
       entries: [{ gasDayStart: '2026-04-04', full: String(50 + i) }],
@@ -183,7 +183,7 @@ describe('validation gate', () => {
     const result = buildCountriesPayload(invalidEntries);
     assert.equal(result.length, 10);
     // Simulate the gate check
-    const MIN_VALID_COUNTRIES = 15;
+    const MIN_VALID_COUNTRIES = 24;
     assert.throws(
       () => {
         if (result.length < MIN_VALID_COUNTRIES) {
@@ -196,14 +196,14 @@ describe('validation gate', () => {
     );
   });
 
-  it('does not throw when 15 or more countries are valid', () => {
-    const validEntries = Array.from({ length: 15 }, (_, i) => ({
+  it('does not throw when 24 or more countries are valid', () => {
+    const validEntries = Array.from({ length: 24 }, (_, i) => ({
       iso2: `C${i}`,
       entries: [{ gasDayStart: '2026-04-04', full: String(50 + i) }],
     }));
     const result = buildCountriesPayload(validEntries);
-    assert.equal(result.length, 15);
-    const MIN_VALID_COUNTRIES = 15;
+    assert.equal(result.length, 24);
+    const MIN_VALID_COUNTRIES = 24;
     assert.doesNotThrow(() => {
       if (result.length < MIN_VALID_COUNTRIES) {
         throw new Error('gate failed');
