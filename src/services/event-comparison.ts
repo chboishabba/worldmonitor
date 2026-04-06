@@ -47,10 +47,18 @@ export interface EventComparisonEnvelope {
   };
 }
 
+export interface EventComparisonMcpOptions {
+  mcpServerUrl?: string;
+  mcpProxyUrl?: string;
+  fallbackToLocal?: boolean;
+}
+
+const ITIR_COMPARE_TOOL = 'itir.compare_observations';
+const DEFAULT_MCP_PROXY_URL = '/api/mcp-proxy';
+
 const GEO_DISTANCE_WINDOW_KM = 100;
 const TIME_DISTANCE_WINDOW_MS = 6 * 60 * 60 * 1000;
 const SHARED_TOKEN_LIMIT = 5;
-
 function clamp(value: number, min = 0, max = 1): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -155,6 +163,131 @@ export function compareNewsItems(left: NewsItem, right: NewsItem): EventComparis
       geo: geo == null ? null : roundMetric(geo),
     },
   };
+}
+
+function buildItirObservation(item: NewsItem) {
+  return {
+    source_system: 'worldmonitor',
+    source_scope: 'external',
+    observed_time: item.pubDate.toISOString(),
+    text: [item.title, item.locationName].filter(Boolean).join(' ').trim(),
+    geometry: toGeo(item),
+    source: item.source,
+    source_id: item.link,
+    anchor_refs: {
+      source: item.source,
+      link: item.link,
+    },
+  };
+}
+
+function parseItirSignals(raw: unknown): EventComparisonSignals {
+  if (!raw || typeof raw !== 'object') {
+    return { text: 0, time: 0, geo: 0 };
+  }
+  const data = raw as Record<string, unknown>;
+  const signalBag = typeof data.signals === 'object' && data.signals !== null
+    ? data.signals as Record<string, unknown>
+    : data;
+  const text = typeof signalBag.text === 'number' ? signalBag.text : typeof signalBag.textSimilarity === 'number' ? signalBag.textSimilarity : 0;
+  const time = typeof signalBag.time === 'number' ? signalBag.time : typeof signalBag.timeSimilarity === 'number' ? signalBag.timeSimilarity : 0;
+  const geoRaw = signalBag.geo;
+  const geo = typeof geoRaw === 'number' ? geoRaw : typeof signalBag.geoSimilarity === 'number' ? signalBag.geoSimilarity : null;
+  return {
+    text: roundMetric(clamp(text)),
+    time: roundMetric(clamp(time)),
+    geo: geo === null ? null : roundMetric(clamp(geo)),
+  };
+}
+
+function parseItirComparableFeatures(raw: unknown): string[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const data = raw as Record<string, unknown>;
+  const shared: unknown = data.shared_features ?? data.sharedFeatures ?? data.sharedFeature ?? data.shared?.features;
+  if (Array.isArray(shared) && shared.every(item => typeof item === 'string')) {
+    return shared;
+  }
+  return [];
+}
+
+function parseItirDistinctFeatures(raw: unknown): string[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const data = raw as Record<string, unknown>;
+  const distinct = data.distinct_features ?? data.distinctFeatures;
+
+  if (Array.isArray(distinct) && distinct.every(item => typeof item === 'string')) {
+    return distinct;
+  }
+  if (distinct && typeof distinct === 'object' && !Array.isArray(distinct)) {
+    const bag = distinct as Record<string, unknown>;
+    const leftOnly = Array.isArray(bag.left_only) ? bag.left_only : [];
+    const rightOnly = Array.isArray(bag.right_only) ? bag.right_only : [];
+    return [...leftOnly, ...rightOnly].filter((value): value is string => typeof value === 'string');
+  }
+  return [];
+}
+
+function parseItirComparisonResult(raw: unknown): EventComparison {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Invalid ITIR comparison response payload');
+  }
+  const data = raw as Record<string, unknown>;
+  const confidenceRaw = typeof data.confidence === 'string' ? data.confidence : undefined;
+  const confidence = toConfidence(typeof data.similarity === 'number' ? data.similarity : 0.0);
+
+  if (typeof data.similarity !== 'number' || Number.isNaN(data.similarity)) {
+    throw new Error('ITIR comparison response missing similarity');
+  }
+
+  return {
+    similarity: roundMetric(clamp(data.similarity)),
+    confidence: confidenceRaw === 'low' || confidenceRaw === 'medium' || confidenceRaw === 'high'
+      ? confidenceRaw
+      : confidence,
+    sharedFeatures: parseItirComparableFeatures(data),
+    differingFeatures: parseItirDistinctFeatures(data),
+    signals: parseItirSignals(data),
+  };
+}
+
+async function callItirCompare(left: NewsItem, right: NewsItem, options: EventComparisonMcpOptions = {}): Promise<EventComparison> {
+  const serverUrl = options.mcpServerUrl?.trim();
+  if (!serverUrl) {
+    throw new Error('No ITIR MCP server configured');
+  }
+
+  const response = await fetch(options.mcpProxyUrl ?? DEFAULT_MCP_PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      serverUrl,
+      toolName: ITIR_COMPARE_TOOL,
+      toolArgs: { left: buildItirObservation(left), right: buildItirObservation(right) },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`ITIR MCP call failed: HTTP ${response.status}`);
+  }
+  const payload = await response.json() as { result?: unknown; error?: string };
+  if (payload.error) throw new Error(payload.error);
+  if (!payload.result) throw new Error('ITIR MCP call returned no result');
+
+  return parseItirComparisonResult(payload.result);
+}
+
+export async function compareNewsItemsWithItir(
+  left: NewsItem,
+  right: NewsItem,
+  options: EventComparisonMcpOptions = {},
+): Promise<EventComparison> {
+  try {
+    return await callItirCompare(left, right, options);
+  } catch (error) {
+    if (options.fallbackToLocal === false) {
+      throw error;
+    }
+    return compareNewsItems(left, right);
+  }
 }
 
 export function scoreClusterCoherence(items: NewsItem[]): ClusterCoherenceSummary {

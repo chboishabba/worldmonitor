@@ -5,6 +5,7 @@ import type { NewsItem } from '../src/types/index.ts';
 import {
   buildEventComparisonEnvelope,
   compareNewsItems,
+  compareNewsItemsWithItir,
   scoreClusterCoherence,
 } from '../src/services/event-comparison.ts';
 
@@ -117,5 +118,73 @@ describe('buildEventComparisonEnvelope', () => {
     assert.equal(envelope.leftEvent.title, left.title);
     assert.equal(envelope.rightEvent.source, right.source);
     assert.ok(typeof envelope.comparison.similarity === 'number');
+  });
+});
+
+describe('compareNewsItemsWithItir', () => {
+  it('uses ITIR MCP result when tool call succeeds', async () => {
+    const originalFetch = globalThis.fetch;
+    const left = makeNewsItem();
+    const right = makeNewsItem({
+      source: 'AP',
+      title: 'Drone attack causes explosion near Odesa port overnight',
+      link: 'https://example.test/ap/odesa',
+      pubDate: new Date('2026-04-06T00:45:00Z'),
+      lat: 46.48,
+      lon: 30.73,
+    });
+
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        result: {
+          similarity: 0.91,
+          confidence: 'high',
+          shared_features: ['shared terms: drone', 'shared terms: attack'],
+          distinct_features: ['time overlap'],
+          signals: { text: 0.92, time: 0.95, geo: 0.89 },
+        },
+      }),
+    } as Response);
+
+    try {
+      const result = await compareNewsItemsWithItir(left, right, { mcpServerUrl: 'https://mcp.itir.example/v1/mcp' });
+      assert.equal(result.confidence, 'high');
+      assert.equal(result.similarity, 0.91);
+      assert.equal(result.sharedFeatures.length, 2);
+      assert.equal(result.differingFeatures.length, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('falls back to local comparison when ITIR MCP is unavailable', async () => {
+    const originalFetch = globalThis.fetch;
+    const left = makeNewsItem();
+    const right = makeNewsItem({
+      source: 'AP',
+      title: 'Chip stocks rally after strong quarterly earnings guidance',
+      link: 'https://example.test/ap/chip',
+      pubDate: new Date('2026-04-07T12:00:00Z'),
+      lat: 37.7749,
+      lon: -122.4194,
+      locationName: 'San Francisco',
+      isAlert: false,
+    });
+
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: 'service unavailable' }),
+    } as Response);
+
+    try {
+      const result = await compareNewsItemsWithItir(left, right, { mcpServerUrl: 'https://mcp.itir.example/v1/mcp' });
+      assert.equal(result.confidence, 'low');
+      assert.equal(result.sharedFeatures.includes('sources differ: Reuters vs AP'), true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
