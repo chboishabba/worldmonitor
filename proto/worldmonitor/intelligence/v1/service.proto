@@ -22,6 +22,7 @@ import "worldmonitor/intelligence/v1/list_cross_source_signals.proto";
 import "worldmonitor/intelligence/v1/list_market_implications.proto";
 import "worldmonitor/intelligence/v1/get_social_velocity.proto";
 import "worldmonitor/intelligence/v1/get_country_energy_profile.proto";
+import "worldmonitor/intelligence/v1/compute_energy_shock.proto";
 
 // IntelligenceService provides APIs for technical and strategic intelligence.
 service IntelligenceService {
@@ -158,5 +159,10 @@ service IntelligenceService {
   // GetCountryEnergyProfile aggregates Phase 1/2/2.5 energy data per country.
   rpc GetCountryEnergyProfile(GetCountryEnergyProfileRequest) returns (GetCountryEnergyProfileResponse) {
     option (sebuf.http.config) = {path: "/get-country-energy-profile", method: HTTP_METHOD_GET};
+  }
+
+  // ComputeEnergyShockScenario computes on-demand product supply shock for a given country + chokepoint.
+  rpc ComputeEnergyShockScenario(ComputeEnergyShockScenarioRequest) returns (ComputeEnergyShockScenarioResponse) {
+    option (sebuf.http.config) = {path: "/compute-energy-shock", method: HTTP_METHOD_GET};
   }
 }

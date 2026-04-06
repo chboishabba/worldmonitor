@@ -20,6 +20,7 @@ import { listCrossSourceSignals } from './list-cross-source-signals';
 import { listMarketImplications } from './list-market-implications';
 import { getSocialVelocity } from './get-social-velocity';
 import { getCountryEnergyProfile } from './get-country-energy-profile';
+import { computeEnergyShockScenario } from './compute-energy-shock';
 
 export const intelligenceHandler: IntelligenceServiceHandler = {
   getRiskScores,
@@ -42,4 +43,5 @@ export const intelligenceHandler: IntelligenceServiceHandler = {
   listMarketImplications,
   getSocialVelocity,
   getCountryEnergyProfile,
+  computeEnergyShockScenario,
 };

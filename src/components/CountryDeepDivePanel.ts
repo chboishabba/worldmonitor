@@ -25,6 +25,8 @@ import type {
 } from './CountryBriefPanel';
 import type { MapContainer } from './MapContainer';
 import { ResilienceWidget } from './ResilienceWidget';
+import { toApiUrl } from '@/services/runtime';
+import type { ComputeEnergyShockScenarioResponse, ProductImpact } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 
 type ThreatLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 type TrendDirection = 'up' | 'down' | 'flat';
@@ -697,6 +699,138 @@ export class CountryDeepDivePanel implements CountryBriefPanel {
       }
       this.energyBody.append(section);
     }
+
+    this.energyBody.append(this.renderShockScenarioWidget());
+  }
+
+  private renderShockScenarioWidget(): HTMLElement {
+    const wrapper = this.el('div', '');
+    wrapper.style.cssText = 'margin-top:12px;border-top:1px solid #374151;padding-top:10px';
+
+    const title = this.el('div', 'cdp-subtitle', 'Shock Scenario');
+    wrapper.append(title);
+
+    const controls = this.el('div', '');
+    controls.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px';
+
+    const chokepointSelect = this.el('select', '') as HTMLSelectElement;
+    chokepointSelect.style.cssText = 'background:#1f2937;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:3px 6px;font-size:11px';
+    const chopkpts: Array<[string, string]> = [['hormuz', 'Strait of Hormuz'], ['malacca', 'Strait of Malacca'], ['suez', 'Suez Canal'], ['babelm', 'Bab el-Mandeb']];
+    for (const [cpValue, cpLabel] of chopkpts) {
+      const opt = this.el('option', '') as HTMLOptionElement;
+      opt.value = cpValue;
+      opt.textContent = cpLabel;
+      chokepointSelect.append(opt);
+    }
+
+    const disruptionSelect = this.el('select', '') as HTMLSelectElement;
+    disruptionSelect.style.cssText = 'background:#1f2937;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:3px 6px;font-size:11px';
+    for (const pct of [25, 50, 75, 100]) {
+      const opt = this.el('option', '') as HTMLOptionElement;
+      opt.value = String(pct);
+      opt.textContent = `${pct}% disruption`;
+      disruptionSelect.append(opt);
+    }
+
+    const computeBtn = this.el('button', 'cdp-action-btn') as HTMLButtonElement;
+    computeBtn.type = 'button';
+    computeBtn.textContent = 'Compute';
+    computeBtn.style.cssText += ';font-size:11px;padding:3px 8px';
+
+    controls.append(chokepointSelect, disruptionSelect, computeBtn);
+    wrapper.append(controls);
+
+    const resultArea = this.el('div', '');
+    resultArea.style.cssText = 'margin-top:8px';
+    wrapper.append(resultArea);
+
+    computeBtn.addEventListener('click', () => {
+      const code = this.currentCode;
+      if (!code) return;
+      const chokepoint = chokepointSelect.value;
+      const disruption = parseInt(disruptionSelect.value, 10);
+
+      resultArea.replaceChildren();
+      const loading = this.el('div', 'cdp-economic-source', 'Computing\u2026');
+      resultArea.append(loading);
+      computeBtn.disabled = true;
+
+      const url = toApiUrl(`/api/intelligence/v1/compute-energy-shock?country_code=${encodeURIComponent(code)}&chokepoint_id=${encodeURIComponent(chokepoint)}&disruption_pct=${disruption}`);
+      globalThis.fetch(url)
+        .then((r) => r.json() as Promise<ComputeEnergyShockScenarioResponse>)
+        .then((result) => {
+          resultArea.replaceChildren();
+          resultArea.append(this.renderShockResult(result));
+        })
+        .catch(() => {
+          resultArea.replaceChildren();
+          resultArea.append(this.el('div', 'cdp-economic-source', 'Failed to compute scenario.'));
+        })
+        .finally(() => {
+          computeBtn.disabled = false;
+        });
+    });
+
+    return wrapper;
+  }
+
+  private renderShockResult(result: ComputeEnergyShockScenarioResponse): HTMLElement {
+    const container = this.el('div', '');
+
+    if (!result.dataAvailable) {
+      container.append(this.el('div', 'cdp-economic-source', result.assessment));
+      return container;
+    }
+
+    if (result.products.length > 0) {
+      const table = this.el('table', '');
+      table.style.cssText = 'width:100%;font-size:11px;border-collapse:collapse;margin-bottom:6px';
+      const thead = this.el('thead', '');
+      const hr = this.el('tr', '');
+      for (const h of ['Product', 'Demand', 'Loss', 'Deficit']) {
+        const th = this.el('th', '');
+        th.textContent = h;
+        th.style.cssText = 'text-align:left;color:#aaa;padding:2px 4px';
+        hr.append(th);
+      }
+      thead.append(hr);
+      table.append(thead);
+
+      const tbody = this.el('tbody', '');
+      for (const p of result.products as ProductImpact[]) {
+        const tr = this.el('tr', '');
+        const defColor = p.deficitPct > 30 ? '#ef4444' : p.deficitPct > 10 ? '#f59e0b' : '#22c55e';
+        const cells = [
+          p.product,
+          `${p.demandKbd} kbd`,
+          `${p.outputLossKbd} kbd`,
+          `${p.deficitPct.toFixed(1)}%`,
+        ];
+        cells.forEach((val, i) => {
+          const td = this.el('td', '');
+          td.textContent = val;
+          td.style.cssText = `padding:2px 4px${i === 3 ? `;color:${defColor}` : ''}`;
+          tr.append(td);
+        });
+        tbody.append(tr);
+      }
+      table.append(tbody);
+      container.append(table);
+    }
+
+    if (result.effectiveCoverDays > 0) {
+      const coverRow = this.el('div', 'cdp-economic-source');
+      coverRow.style.cssText += ';margin-bottom:4px';
+      coverRow.textContent = `IEA cover: ~${result.effectiveCoverDays} days under this scenario`;
+      container.append(coverRow);
+    }
+
+    const assessmentEl = this.el('div', '');
+    assessmentEl.style.cssText = 'font-size:11px;color:#d1d5db;line-height:1.4;margin-top:4px';
+    assessmentEl.textContent = result.assessment;
+    container.append(assessmentEl);
+
+    return container;
   }
 
   private factItem(label: string, value: string): HTMLElement {

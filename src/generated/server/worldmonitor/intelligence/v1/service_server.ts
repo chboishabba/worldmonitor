@@ -532,6 +532,31 @@ export interface GetCountryEnergyProfileResponse {
   ieaBelowObligation: boolean;
 }
 
+export interface ComputeEnergyShockScenarioRequest {
+  countryCode: string;
+  chokepointId: string;
+  disruptionPct: number;
+}
+
+export interface ComputeEnergyShockScenarioResponse {
+  countryCode: string;
+  chokepointId: string;
+  disruptionPct: number;
+  gulfCrudeShare: number;
+  crudeLossKbd: number;
+  products: ProductImpact[];
+  effectiveCoverDays: number;
+  assessment: string;
+  dataAvailable: boolean;
+}
+
+export interface ProductImpact {
+  product: string;
+  outputLossKbd: number;
+  demandKbd: number;
+  deficitPct: number;
+}
+
 export type SeverityLevel = "SEVERITY_LEVEL_UNSPECIFIED" | "SEVERITY_LEVEL_LOW" | "SEVERITY_LEVEL_MEDIUM" | "SEVERITY_LEVEL_HIGH";
 
 export type TrendDirection = "TREND_DIRECTION_UNSPECIFIED" | "TREND_DIRECTION_RISING" | "TREND_DIRECTION_STABLE" | "TREND_DIRECTION_FALLING";
@@ -611,6 +636,7 @@ export interface IntelligenceServiceHandler {
   listMarketImplications(ctx: ServerContext, req: ListMarketImplicationsRequest): Promise<ListMarketImplicationsResponse>;
   getSocialVelocity(ctx: ServerContext, req: GetSocialVelocityRequest): Promise<GetSocialVelocityResponse>;
   getCountryEnergyProfile(ctx: ServerContext, req: GetCountryEnergyProfileRequest): Promise<GetCountryEnergyProfileResponse>;
+  computeEnergyShockScenario(ctx: ServerContext, req: ComputeEnergyShockScenarioRequest): Promise<ComputeEnergyShockScenarioResponse>;
 }
 
 export function createIntelligenceServiceRoutes(
@@ -1515,6 +1541,55 @@ export function createIntelligenceServiceRoutes(
 
           const result = await handler.getCountryEnergyProfile(ctx, body);
           return new Response(JSON.stringify(result as GetCountryEnergyProfileResponse), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err: unknown) {
+          if (err instanceof ValidationError) {
+            return new Response(JSON.stringify({ violations: err.violations }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (options?.onError) {
+            return options.onError(err, req);
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          return new Response(JSON.stringify({ message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/intelligence/v1/compute-energy-shock",
+      handler: async (req: Request): Promise<Response> => {
+        try {
+          const pathParams: Record<string, string> = {};
+          const url = new URL(req.url, "http://localhost");
+          const params = url.searchParams;
+          const body: ComputeEnergyShockScenarioRequest = {
+            countryCode: params.get("country_code") ?? "",
+            chokepointId: params.get("chokepoint_id") ?? "",
+            disruptionPct: Number(params.get("disruption_pct") ?? "0"),
+          };
+          if (options?.validateRequest) {
+            const bodyViolations = options.validateRequest("computeEnergyShockScenario", body);
+            if (bodyViolations) {
+              throw new ValidationError(bodyViolations);
+            }
+          }
+
+          const ctx: ServerContext = {
+            request: req,
+            pathParams,
+            headers: Object.fromEntries(req.headers.entries()),
+          };
+
+          const result = await handler.computeEnergyShockScenario(ctx, body);
+          return new Response(JSON.stringify(result as ComputeEnergyShockScenarioResponse), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });

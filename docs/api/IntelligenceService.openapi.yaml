@@ -710,6 +710,49 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Error'
+    /api/intelligence/v1/compute-energy-shock:
+        get:
+            tags:
+                - IntelligenceService
+            summary: ComputeEnergyShockScenario
+            description: ComputeEnergyShockScenario computes on-demand product supply shock for a given country + chokepoint.
+            operationId: ComputeEnergyShockScenario
+            parameters:
+                - name: country_code
+                  in: query
+                  required: false
+                  schema:
+                    type: string
+                - name: chokepoint_id
+                  in: query
+                  required: false
+                  schema:
+                    type: string
+                - name: disruption_pct
+                  in: query
+                  required: false
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: Successful response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ComputeEnergyShockScenarioResponse'
+                "400":
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidationError'
+                default:
+                    description: Error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Error'
 components:
     schemas:
         Error:
@@ -2127,3 +2170,54 @@ components:
                     type: boolean
                 ieaBelowObligation:
                     type: boolean
+        ComputeEnergyShockScenarioRequest:
+            type: object
+            properties:
+                countryCode:
+                    type: string
+                chokepointId:
+                    type: string
+                disruptionPct:
+                    type: integer
+                    format: int32
+        ComputeEnergyShockScenarioResponse:
+            type: object
+            properties:
+                countryCode:
+                    type: string
+                chokepointId:
+                    type: string
+                disruptionPct:
+                    type: integer
+                    format: int32
+                gulfCrudeShare:
+                    type: number
+                    format: double
+                crudeLossKbd:
+                    type: number
+                    format: double
+                products:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProductImpact'
+                effectiveCoverDays:
+                    type: integer
+                    format: int32
+                assessment:
+                    type: string
+                dataAvailable:
+                    type: boolean
+        ProductImpact:
+            type: object
+            properties:
+                product:
+                    type: string
+                outputLossKbd:
+                    type: number
+                    format: double
+                demandKbd:
+                    type: number
+                    format: double
+                deficitPct:
+                    type: number
+                    format: double
