@@ -192,8 +192,8 @@ describe('resilience dimension scorers', () => {
       return null;
     };
     const score = await scoreCurrencyExternal('MZ', reader);
-    // normalizeLowerBetter(8, 0, 100) = (100-8)/100*100 = 92
-    assert.equal(score.score, 92, 'low-inflation country gets high currency score via IMF proxy');
+    // normalizeLowerBetter(min(8,50), 0, 50) = (50-8)/50*100 = 84
+    assert.equal(score.score, 84, 'low-inflation country gets high currency score via IMF proxy');
     assert.equal(score.coverage, 0.45, 'IMF inflation proxy coverage=0.45 (better than pure imputation)');
   });
 
@@ -217,8 +217,8 @@ describe('resilience dimension scorers', () => {
       return null; // economic:bis:eer:v1 null = BIS seed outage
     };
     const score = await scoreCurrencyExternal('MZ', reader);
-    // normalizeLowerBetter(6, 0, 100) = 94
-    assert.equal(score.score, 94, 'BIS outage must not block IMF inflation proxy');
+    // normalizeLowerBetter(min(6,50), 0, 50) = (50-6)/50*100 = 88
+    assert.equal(score.score, 88, 'BIS outage must not block IMF inflation proxy');
     assert.equal(score.coverage, 0.35, 'BIS outage reduces proxy coverage to 0.35 (primary source unavailable)');
   });
 
@@ -232,7 +232,7 @@ describe('resilience dimension scorers', () => {
   it('scoreMacroFiscal: IMF current account loaded, surplus country scores higher than deficit', async () => {
     const makeReader = (caPct: number) => async (key: string): Promise<unknown | null> => {
       if (key === 'economic:national-debt:v1') return { entries: [{ iso3: 'HRV', debtToGdp: 70, annualGrowth: 1.5 }] };
-      if (key === 'economic:imf:macro:v1') return { countries: { HR: { inflationPct: 3.0, currentAccountPct: caPct, year: 2024 } } };
+      if (key === 'economic:imf:macro:v1') return { countries: { HR: { inflationPct: 3.0, currentAccountPct: caPct, govRevenuePct: 40, year: 2024 } } };
       return null;
     };
     const surplus = await scoreMacroFiscal('HR', makeReader(10));
@@ -241,16 +241,17 @@ describe('resilience dimension scorers', () => {
     assert.equal(surplus.coverage, 1, 'all real data → coverage=1');
   });
 
-  it('scoreMacroFiscal: IMF macro seed outage does not impute — debt data still scores', async () => {
+  it('scoreMacroFiscal: IMF macro seed outage does not impute — debt growth still scores', async () => {
     const reader = async (key: string): Promise<unknown | null> => {
       if (key === 'economic:national-debt:v1') return { entries: [{ iso3: 'HRV', debtToGdp: 70, annualGrowth: 1.5 }] };
       return null; // economic:imf:macro:v1 null = seed outage
     };
     const score = await scoreMacroFiscal('HR', reader);
-    // Only debt (weight 0.7 real); IMF null → no imputation → coverage = 0.7
-    assert.ok(score.coverage > 0.65 && score.coverage < 0.75,
-      `coverage should be ~0.7 (debt only, IMF outage), got ${score.coverage}`);
-    assert.ok(score.score > 0, 'debt data alone should produce a non-zero score');
+    // govRevenuePct (0.5) and currentAccountPct (0.3) come from IMF macro (null = outage).
+    // Only debtGrowth (weight=0.2) has real data → coverage = 0.2.
+    assert.ok(score.coverage > 0.15 && score.coverage < 0.25,
+      `coverage should be ~0.2 (debt growth only, IMF outage), got ${score.coverage}`);
+    assert.ok(score.score > 0, 'debt growth data alone should produce a non-zero score');
   });
 
   it('scoreFoodWater: country absent from FAO/IPC DB gets crisis_monitoring_absent imputation (not WGI proxy)', async () => {

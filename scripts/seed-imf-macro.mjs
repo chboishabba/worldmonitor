@@ -52,13 +52,18 @@ function latestValue(byYear) {
 }
 
 async function fetchImfMacro() {
-  const [inflationData, currentAccountData] = await Promise.all([
+  const [inflationData, currentAccountData, govRevenueData] = await Promise.all([
     fetchImfIndicator('PCPIPCH'),   // CPI inflation, annual % change
     fetchImfIndicator('BCA_NGDPD'), // Current account balance, % of GDP
+    fetchImfIndicator('GGR_NGDP'),  // General government revenue, % of GDP
   ]);
 
   const countries = {};
-  const allIso3 = new Set([...Object.keys(inflationData), ...Object.keys(currentAccountData)]);
+  const allIso3 = new Set([
+    ...Object.keys(inflationData),
+    ...Object.keys(currentAccountData),
+    ...Object.keys(govRevenueData),
+  ]);
 
   for (const iso3 of allIso3) {
     if (isAggregate(iso3)) continue;
@@ -66,13 +71,15 @@ async function fetchImfMacro() {
     if (!iso2) continue;
 
     const infl = latestValue(inflationData[iso3]);
-    const ca = latestValue(currentAccountData[iso3]);
-    if (!infl && !ca) continue;
+    const ca   = latestValue(currentAccountData[iso3]);
+    const rev  = latestValue(govRevenueData[iso3]);
+    if (!infl && !ca && !rev) continue;
 
     countries[iso2] = {
-      inflationPct: infl?.value ?? null,
+      inflationPct:    infl?.value ?? null,
       currentAccountPct: ca?.value ?? null,
-      year: infl?.year ?? ca?.year ?? null,
+      govRevenuePct:   rev?.value  ?? null,
+      year: infl?.year ?? ca?.year ?? rev?.year ?? null,
     };
   }
 

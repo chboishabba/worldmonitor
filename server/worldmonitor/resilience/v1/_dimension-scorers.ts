@@ -80,6 +80,7 @@ interface ResilienceStaticCountryRecord {
 interface ImfMacroEntry {
   inflationPct?: number | null;
   currentAccountPct?: number | null;
+  govRevenuePct?: number | null;
   year?: number | null;
 }
 
@@ -594,11 +595,16 @@ export async function scoreMacroFiscal(
   const imfEntry = getImfMacroEntry(imfMacroRaw, countryCode);
 
   return weightedBlend([
-    { score: extractMetric(debtEntry, (entry) => normalizeLowerBetter(safeNum(entry.debtToGdp) ?? 200, 0, 200)), weight: 0.5 },
+    // Government revenue/GDP: fiscal capacity — how much the state can actually mobilise.
+    // Replaces raw debt/GDP which HIPC debt relief and credit exclusion invert for fragile
+    // states (Somalia 5% debt ≠ fiscal prudence; it reflects that no one will lend to them).
+    // Anchor: 5% (Somalia, war-torn states) → 0, 45% (OECD median) → 100.
+    imfMacroRaw == null
+      ? { score: null, weight: 0.5 }
+      : { score: imfEntry?.govRevenuePct == null ? null : normalizeHigherBetter(imfEntry.govRevenuePct, 5, 45), weight: 0.5 },
+    // Debt growth rate: rapid debt accumulation = fiscal stress even at moderate levels.
     { score: extractMetric(debtEntry, (entry) => normalizeLowerBetter(Math.max(0, safeNum(entry.annualGrowth) ?? 0), 0, 20)), weight: 0.2 },
-    // IMF current account balance: surplus = better external position.
-    // Null source (seed outage) = missing data — do NOT impute.
-    // IMF covers ~185 sovereign states; country absent = micronation/territory → score null.
+    // Current account balance: external position — deficit = more vulnerable to FX shocks.
     imfMacroRaw == null
       ? { score: null, weight: 0.3 }
       : { score: imfEntry?.currentAccountPct == null ? null : normalizeHigherBetter(Math.max(-20, Math.min(imfEntry.currentAccountPct, 20)), -20, 20), weight: 0.3 },
@@ -631,11 +637,13 @@ export async function scoreCurrencyExternal(
   if (countryRates.length === 0) {
     const imfEntry = getImfMacroEntry(imfMacroRaw, countryCode);
     if (imfMacroRaw != null && imfEntry?.inflationPct != null) {
-      // Cap at 100% — hyperinflation is extreme instability regardless of magnitude.
+      // Cap at 50% — anything above 50% annual inflation is already catastrophic instability;
+      // a tighter cap better differentiates fragile states (Haiti ~39% → score 22) from
+      // moderately elevated inflation. Anchor: 0%→100, 50%+→0.
       // coverage=0.45 when BIS is loaded (country absent from curated list);
       // coverage=0.35 when BIS itself is down (proxy-only, primary source unavailable).
       const coverage = bisExchangeRaw != null ? 0.45 : 0.35;
-      return { score: normalizeLowerBetter(Math.min(imfEntry.inflationPct, 100), 0, 100), coverage };
+      return { score: normalizeLowerBetter(Math.min(imfEntry.inflationPct, 50), 0, 50), coverage };
     }
     if (bisExchangeRaw == null) return { score: 50, coverage: 0 }; // both sources null
     return { score: IMPUTE.bisEer.score, coverage: IMPUTE.bisEer.certaintyCoverage }; // BIS loaded, country absent, no IMF
@@ -813,7 +821,10 @@ export async function scoreSocialCohesion(
   const unrestMetric = unrest.unrestCount + Math.sqrt(unrest.fatalities);
 
   return weightedBlend([
-    { score: gpiScore == null ? null : normalizeLowerBetter(gpiScore, 1, 4), weight: 0.55 },
+    // GPI empirical range: 1.1 (Iceland) – 3.4 (Yemen 2024). Anchor worst=3.6 (slightly
+    // above observed max) so the worst-peace countries score near 0, not 20.
+    // The old anchor of 4.0 gave Yemen (3.4) a score of 20 instead of ~8.
+    { score: gpiScore == null ? null : normalizeLowerBetter(gpiScore, 1.0, 3.6), weight: 0.55 },
     {
       score: displacementMetric == null
         ? null

@@ -151,9 +151,12 @@ export const RESILIENCE_FIXTURES: FixtureMap = {
   // and provides tier-2 currency stability proxy for non-BIS countries in scoreCurrencyExternal.
   'economic:imf:macro:v1': {
     countries: {
-      NO: { inflationPct: 3.2, currentAccountPct: 20.0, year: 2024 },
-      US: { inflationPct: 3.5, currentAccountPct: -3.3, year: 2024 },
-      YE: { inflationPct: 22.0, currentAccountPct: -6.0, year: 2024 },
+      // govRevenuePct = General Government Revenue % GDP (IMF GGR_NGDP).
+      // Replaces debtToGdp as primary fiscal metric in scoreMacroFiscal — raw debt/GDP
+      // is gamed by HIPC relief (Somalia 5% debt ≠ prudence; it reflects credit exclusion).
+      NO: { inflationPct: 3.2, currentAccountPct: 20.0, govRevenuePct: 57.0, year: 2024 },
+      US: { inflationPct: 3.5, currentAccountPct: -3.3, govRevenuePct: 33.0, year: 2024 },
+      YE: { inflationPct: 22.0, currentAccountPct: -6.0, govRevenuePct: 8.0, year: 2024 },
     },
   },
   'economic:bis:eer:v1': {
