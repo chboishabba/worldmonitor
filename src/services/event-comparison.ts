@@ -57,8 +57,12 @@ const ITIR_COMPARE_TOOL = 'itir.compare_observations';
 const DEFAULT_MCP_PROXY_URL = '/api/mcp-proxy';
 
 const GEO_DISTANCE_WINDOW_KM = 100;
+const GEO_PROXIMITY_WINDOW_KM = 50;
 const TIME_DISTANCE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const TIME_PROXIMITY_WINDOW_MS = 2 * 60 * 60 * 1000;
 const SHARED_TOKEN_LIMIT = 5;
+const MAX_COHERENCE_ITEMS = 250;
+
 function clamp(value: number, min = 0, max = 1): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -68,17 +72,21 @@ function roundMetric(value: number): number {
 }
 
 function normalizeTitle(item: NewsItem): string {
-  return [item.title, item.locationName].filter(Boolean).join(' ').trim();
+  return item.title.trim();
 }
 
 function buildStableEventId(item: NewsItem): string {
   const raw = `${item.source}|${item.link}|${item.pubDate.toISOString()}`;
-  let hash = 0;
+  let h1 = 0x811c9dc5;
+  let h2 = 0;
   for (let index = 0; index < raw.length; index++) {
-    hash = ((hash << 5) - hash) + raw.charCodeAt(index);
-    hash |= 0;
+    const charCode = raw.charCodeAt(index);
+    h1 = Math.imul(h1 ^ charCode, 0x01000193);
+    h2 = Math.imul(h2 ^ charCode, 0x01000193);
   }
-  return `evt-${Math.abs(hash).toString(16)}`;
+  const part1 = (h1 >>> 0).toString(16).padStart(8, '0');
+  const part2 = (h2 >>> 0).toString(16).padStart(8, '0');
+  return `evt-${part1}-${part2}`;
 }
 
 function toGeo(item: NewsItem): { lat: number; lon: number } | null {
@@ -131,10 +139,10 @@ export function compareNewsItems(left: NewsItem, right: NewsItem): EventComparis
   if (left.locationName && right.locationName && left.locationName.toLowerCase() === right.locationName.toLowerCase()) {
     sharedFeatures.push(`shared location label: ${left.locationName}`);
   }
-  if (timeDiffMs <= 2 * 60 * 60 * 1000) {
+  if (timeDiffMs <= TIME_PROXIMITY_WINDOW_MS) {
     sharedFeatures.push(`time window: ${Math.round(timeDiffMs / 60000)} minutes apart`);
   }
-  if (geoDistanceKm != null && geoDistanceKm <= 50) {
+  if (geoDistanceKm != null && geoDistanceKm <= GEO_PROXIMITY_WINDOW_KM) {
     sharedFeatures.push(`geo proximity: ${Math.round(geoDistanceKm)} km`);
   }
 
@@ -142,10 +150,10 @@ export function compareNewsItems(left: NewsItem, right: NewsItem): EventComparis
   if (left.source !== right.source) {
     differingFeatures.push(`sources differ: ${left.source} vs ${right.source}`);
   }
-  if (timeDiffMs > 2 * 60 * 60 * 1000) {
+  if (timeDiffMs > TIME_PROXIMITY_WINDOW_MS) {
     differingFeatures.push(`time offset: ${Math.round(timeDiffMs / 3600000)}h`);
   }
-  if (geoDistanceKm != null && geoDistanceKm > 50) {
+  if (geoDistanceKm != null && geoDistanceKm > GEO_PROXIMITY_WINDOW_KM) {
     differingFeatures.push(`geo offset: ${Math.round(geoDistanceKm)} km`);
   }
   if (sharedTokens.length === 0) {
@@ -300,12 +308,13 @@ export function scoreClusterCoherence(items: NewsItem[]): ClusterCoherenceSummar
     };
   }
 
+  const cappedItems = items.length > MAX_COHERENCE_ITEMS ? items.slice(0, MAX_COHERENCE_ITEMS) : items;
   const comparisons: EventComparison[] = [];
-  for (let leftIndex = 0; leftIndex < items.length; leftIndex++) {
-    const left = items[leftIndex];
+  for (let leftIndex = 0; leftIndex < cappedItems.length; leftIndex++) {
+    const left = cappedItems[leftIndex];
     if (!left) continue;
-    for (let rightIndex = leftIndex + 1; rightIndex < items.length; rightIndex++) {
-      const right = items[rightIndex];
+    for (let rightIndex = leftIndex + 1; rightIndex < cappedItems.length; rightIndex++) {
+      const right = cappedItems[rightIndex];
       if (!right) continue;
       comparisons.push(compareNewsItems(left, right));
     }

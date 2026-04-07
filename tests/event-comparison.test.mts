@@ -41,6 +41,9 @@ describe('compareNewsItems', () => {
     assert.ok(result.similarity >= 0.75, `expected high similarity, got ${result.similarity}`);
     assert.ok(result.sharedFeatures.some(feature => feature.includes('shared location label')));
     assert.ok(result.sharedFeatures.some(feature => feature.includes('shared terms')));
+    assert.equal(typeof result.signals.text, 'number');
+    assert.equal(typeof result.signals.time, 'number');
+    assert.equal(typeof result.signals.geo, 'number');
     assert.ok(result.differingFeatures.some(feature => feature.includes('sources differ')));
   });
 
@@ -67,6 +70,15 @@ describe('compareNewsItems', () => {
 });
 
 describe('scoreClusterCoherence', () => {
+  it('returns fully coherent result for empty clusters', () => {
+    const coherence = scoreClusterCoherence([]);
+
+    assert.equal(coherence.comparisonCount, 0);
+    assert.equal(coherence.coherence, 1);
+    assert.equal(coherence.weakestPair, null);
+    assert.equal(coherence.confidence, 'high');
+  });
+
   it('returns the weakest pair and mean score for multi-item clusters', () => {
     const items = [
       makeNewsItem(),
@@ -118,6 +130,26 @@ describe('buildEventComparisonEnvelope', () => {
     assert.equal(envelope.leftEvent.title, left.title);
     assert.equal(envelope.rightEvent.source, right.source);
     assert.ok(typeof envelope.comparison.similarity === 'number');
+  });
+
+  it('accepts a pre-computed comparison and does not recompute similarity', () => {
+    const left = makeNewsItem();
+    const right = makeNewsItem({
+      source: 'AP',
+      title: 'Drone attack causes explosion near Odesa port overnight',
+      link: 'https://example.test/ap/odesa',
+    });
+    const preComputedComparison = {
+      similarity: 0.42,
+      confidence: 'medium' as const,
+      sharedFeatures: ['shared location label: Odesa'],
+      differingFeatures: ['sources differ: Reuters vs AP'],
+      signals: { text: 0.33, time: 0.5, geo: 0.5 },
+    };
+
+    const envelope = buildEventComparisonEnvelope(left, right, preComputedComparison);
+
+    assert.deepEqual(envelope.comparison, preComputedComparison);
   });
 });
 
